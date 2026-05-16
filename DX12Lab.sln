@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37301.10 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DX12Lab", "DX12Lab\DX12Lab.csproj", "{8105124F-511F-491B-AB86-4D633EE8DC72}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Debug|x64.ActiveCfg = Debug|x64
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Debug|x64.Build.0 = Debug|x64
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Release|x64.ActiveCfg = Release|x64
+		{8105124F-511F-491B-AB86-4D633EE8DC72}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2D02E0B1-9F95-4BD8-B64B-E5257104AF03}
+	EndGlobalSection
+EndGlobal
