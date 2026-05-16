@@ -1,21 +1,21 @@
 ﻿namespace DX12Lab;
 
-public class Lab2App : AppBase
+public class DX12App : AppBase
 {
-    private Renderer _renderer;
+    private DX12Renderer _renderer;
 
-    public Lab2App() : base("DX12 Lab 2", 1280, 720) { }
+    public DX12App() : base("DX12Lab", 1280, 720) { }
 
     protected override void Init()
     {
-        _renderer = new Renderer(Window.Hwnd, Window.Width, Window.Height);
+        _renderer = new DX12Renderer(Window.Hwnd, Window.Width, Window.Height);
     }
 
     protected override void OnUpdate(double deltaTime) { }
 
     protected override void OnRender()
     {
-        _renderer.ClearScreen(0.1f, 0.2f, 0.4f);
+        _renderer.Render(Timer.DeltaTime);
     }
 
     protected override void Shutdown()

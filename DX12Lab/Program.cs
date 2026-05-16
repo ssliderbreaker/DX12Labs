@@ -1,4 +1,4 @@
 ﻿using DX12Lab;
 
-var app = new Lab2App();
+var app = new DX12App();
 app.Run();
