@@ -31,27 +31,48 @@ public static class TextureLoader
             textureDesc,
             ResourceStates.CopyDest);
 
-        ulong uploadSize = GetRequiredIntermediateSize(device, texture);
+        // Получаем footprint для правильного выравнивания строк
+        PlacedSubresourceFootPrint[] footprints = new PlacedSubresourceFootPrint[1];
+        uint[] numRows = new uint[1];
+        ulong[] rowSizes = new ulong[1];
+        ulong totalBytes;
+        device.GetCopyableFootprints(textureDesc, 0, 1, 0,
+            footprints, numRows, rowSizes, out totalBytes);
+
         uploadBuffer = device.CreateCommittedResource(
             new HeapProperties(HeapType.Upload),
             HeapFlags.None,
-            ResourceDescription.Buffer(uploadSize),
+            ResourceDescription.Buffer(totalBytes),
             ResourceStates.GenericRead);
 
+        // Копируем пиксели с учётом выравнивания строк (RowPitch может быть > width*4)
         unsafe
         {
             void* ptr = null;
             uploadBuffer.Map(0, null, &ptr);
-            fixed (byte* src = pixels)
-                Buffer.MemoryCopy(src, ptr, pixels.Length, pixels.Length);
+
+            uint rowPitch = footprints[0].Footprint.RowPitch;
+            uint srcRowPitch = (uint)(width * 4);
+
+            fixed (byte* srcPixels = pixels)
+            {
+                for (int row = 0; row < height; row++)
+                {
+                    Buffer.MemoryCopy(
+                        srcPixels + row * srcRowPitch,
+                        (byte*)ptr + row * rowPitch,
+                        rowPitch,
+                        srcRowPitch);
+                }
+            }
+
             uploadBuffer.Unmap(0, null);
         }
 
-        // Копируем через CopyBufferRegion вместо CopyTextureRegion
-        ulong rowPitch = (ulong)(width * 4);
-        ulong alignedRowPitch = (rowPitch + 255) & ~255UL;
-
-        commandList.CopyBufferRegion(texture, 0, uploadBuffer, 0, (ulong)pixels.Length);
+        // Правильная копия буфер → текстура
+        var dst = new TextureCopyLocation(texture, 0);
+        var src = new TextureCopyLocation(uploadBuffer, footprints[0]);
+        commandList.CopyTextureRegion(dst, 0, 0, 0, src, null);
 
         commandList.ResourceBarrier(new ResourceBarrier(
             new ResourceTransitionBarrier(texture,
@@ -59,16 +80,5 @@ public static class TextureLoader
                 ResourceStates.PixelShaderResource)));
 
         return texture;
-    }
-
-    private static ulong GetRequiredIntermediateSize(ID3D12Device device, ID3D12Resource resource)
-    {
-        var desc = resource.Description;
-        ulong totalBytes = 0;
-        PlacedSubresourceFootPrint[] footprint = new PlacedSubresourceFootPrint[1];
-        uint[] rows = new uint[1];
-        ulong[] rowSizes = new ulong[1];
-        device.GetCopyableFootprints(desc, 0, 1, 0, footprint, rows, rowSizes, out totalBytes);
-        return totalBytes;
     }
 }

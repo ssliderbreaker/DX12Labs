@@ -31,7 +31,7 @@ VertexOut VSMain(VertexIn vin)
     VertexOut vout;
     vout.Position = mul(float4(vin.Position, 1.0f), WorldViewProj);
     vout.Normal = mul(vin.Normal, (float3x3) World);
-    vout.TexCoord = vin.Position.xy * TexScale + TexOffset;
+    vout.TexCoord = vin.TexCoord * TexScale + TexOffset;
     return vout;
 }
 

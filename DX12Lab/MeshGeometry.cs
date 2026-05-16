@@ -26,35 +26,35 @@ public class MeshGeometry : IDisposable
         var vertices = new Vertex[]
         {
             // Front
-            new() { Position = new(-1,-1,-1), Normal = new(0,0,1), TexCoord = new(0,1) },
-            new() { Position = new(-1, 1,-1), Normal = new(0,0,1), TexCoord = new(0,0) },
-            new() { Position = new( 1, 1,-1), Normal = new(0,0,1), TexCoord = new(1,0) },
-            new() { Position = new( 1,-1,-1), Normal = new(0,0,1), TexCoord = new(1,1) },
+            new() { Position = new(-1,-1,-1), Normal = new(0,0,-1), TexCoord = new(0,1) },
+            new() { Position = new(-1, 1,-1), Normal = new(0,0,-1), TexCoord = new(0,0) },
+            new() { Position = new( 1, 1,-1), Normal = new(0,0,-1), TexCoord = new(1,0) },
+            new() { Position = new( 1,-1,-1), Normal = new(0,0,-1), TexCoord = new(1,1) },
             // Back
-            new() { Position = new( 1,-1, 1), Normal = new(0,0,-1), TexCoord = new(0,1) },
-            new() { Position = new( 1, 1, 1), Normal = new(0,0,-1), TexCoord = new(0,0) },
-            new() { Position = new(-1, 1, 1), Normal = new(0,0,-1), TexCoord = new(1,0) },
-            new() { Position = new(-1,-1, 1), Normal = new(0,0,-1), TexCoord = new(1,1) },
+            new() { Position = new( 1,-1, 1), Normal = new(0,0,1), TexCoord = new(0,1) },
+            new() { Position = new( 1, 1, 1), Normal = new(0,0,1), TexCoord = new(0,0) },
+            new() { Position = new(-1, 1, 1), Normal = new(0,0,1), TexCoord = new(1,0) },
+            new() { Position = new(-1,-1, 1), Normal = new(0,0,1), TexCoord = new(1,1) },
             // Top
-            new() { Position = new(-1, 1,-1), Normal = new(0,-1,0), TexCoord = new(0,1) },
-            new() { Position = new(-1, 1, 1), Normal = new(0,-1,0), TexCoord = new(0,0) },
-            new() { Position = new( 1, 1, 1), Normal = new(0,-1,0), TexCoord = new(1,0) },
-            new() { Position = new( 1, 1,-1), Normal = new(0,-1,0), TexCoord = new(1,1) },
+            new() { Position = new(-1, 1,-1), Normal = new(0,1,0), TexCoord = new(0,1) },
+            new() { Position = new(-1, 1, 1), Normal = new(0,1,0), TexCoord = new(0,0) },
+            new() { Position = new( 1, 1, 1), Normal = new(0,1,0), TexCoord = new(1,0) },
+            new() { Position = new( 1, 1,-1), Normal = new(0,1,0), TexCoord = new(1,1) },
             // Bottom
-            new() { Position = new(-1,-1, 1), Normal = new(0,1,0), TexCoord = new(0,1) },
-            new() { Position = new(-1,-1,-1), Normal = new(0,1,0), TexCoord = new(0,0) },
-            new() { Position = new( 1,-1,-1), Normal = new(0,1,0), TexCoord = new(1,0) },
-            new() { Position = new( 1,-1, 1), Normal = new(0,1,0), TexCoord = new(1,1) },
+            new() { Position = new(-1,-1, 1), Normal = new(0,-1,0), TexCoord = new(0,1) },
+            new() { Position = new(-1,-1,-1), Normal = new(0,-1,0), TexCoord = new(0,0) },
+            new() { Position = new( 1,-1,-1), Normal = new(0,-1,0), TexCoord = new(1,0) },
+            new() { Position = new( 1,-1, 1), Normal = new(0,-1,0), TexCoord = new(1,1) },
             // Left
-            new() { Position = new(-1,-1, 1), Normal = new(1,0,0), TexCoord = new(0,1) },
-            new() { Position = new(-1, 1, 1), Normal = new(1,0,0), TexCoord = new(0,0) },
-            new() { Position = new(-1, 1,-1), Normal = new(1,0,0), TexCoord = new(1,0) },
-            new() { Position = new(-1,-1,-1), Normal = new(1,0,0), TexCoord = new(1,1) },
+            new() { Position = new(-1,-1, 1), Normal = new(-1,0,0), TexCoord = new(0,1) },
+            new() { Position = new(-1, 1, 1), Normal = new(-1,0,0), TexCoord = new(0,0) },
+            new() { Position = new(-1, 1,-1), Normal = new(-1,0,0), TexCoord = new(1,0) },
+            new() { Position = new(-1,-1,-1), Normal = new(-1,0,0), TexCoord = new(1,1) },
             // Right
-            new() { Position = new( 1,-1,-1), Normal = new(-1,0,0), TexCoord = new(0,1) },
-            new() { Position = new( 1, 1,-1), Normal = new(-1,0,0), TexCoord = new(0,0) },
-            new() { Position = new( 1, 1, 1), Normal = new(-1,0,0), TexCoord = new(1,0) },
-            new() { Position = new( 1,-1, 1), Normal = new(-1,0,0), TexCoord = new(1,1) },
+            new() { Position = new( 1,-1,-1), Normal = new(1,0,0), TexCoord = new(0,1) },
+            new() { Position = new( 1, 1,-1), Normal = new(1,0,0), TexCoord = new(0,0) },
+            new() { Position = new( 1, 1, 1), Normal = new(1,0,0), TexCoord = new(1,0) },
+            new() { Position = new( 1,-1, 1), Normal = new(1,0,0), TexCoord = new(1,1) },
         };
 
         var indices = new ushort[]
