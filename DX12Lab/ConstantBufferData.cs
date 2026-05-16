@@ -11,4 +11,6 @@ public struct ConstantBufferData
     public Vector4 LightDir;
     public Vector4 LightColor;
     public Vector4 AmbientColor;
+    public Vector2 TexOffset;
+    public Vector2 TexScale;
 }

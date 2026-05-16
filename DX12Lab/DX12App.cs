@@ -4,7 +4,7 @@ public class DX12App : AppBase
 {
     private DX12Renderer _renderer;
 
-    public DX12App() : base("DX12Lab", 1280, 720) { }
+    public DX12App() : base("DX12 Lab", 1280, 720) { }
 
     protected override void Init()
     {

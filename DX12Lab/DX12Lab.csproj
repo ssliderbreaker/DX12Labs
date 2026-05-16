@@ -19,5 +19,16 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
     <PackageReference Include="Vortice.Direct3D12" Version="3.*" />
     <PackageReference Include="Vortice.D3DCompiler" Version="3.*" />
+    <PackageReference Include="StbImageSharp" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Assets\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Assets\texture.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>
