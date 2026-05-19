@@ -85,7 +85,6 @@ public class DX12Renderer : IDisposable
         _swapChain = swapChain1.QueryInterface<IDXGISwapChain3>();
         _frameIndex = _swapChain.CurrentBackBufferIndex;
 
-        // RTV Heap
         _rtvHeap = _device.CreateDescriptorHeap(
             new DescriptorHeapDescription(DescriptorHeapType.RenderTargetView, FrameCount));
         _rtvDescriptorSize = _device.GetDescriptorHandleIncrementSize(
@@ -99,7 +98,6 @@ public class DX12Renderer : IDisposable
             rtvHandle.Ptr += _rtvDescriptorSize;
         }
 
-        // DSV Heap + Depth Buffer
         _dsvHeap = _device.CreateDescriptorHeap(
             new DescriptorHeapDescription(DescriptorHeapType.DepthStencilView, 1));
 
@@ -120,7 +118,6 @@ public class DX12Renderer : IDisposable
             },
             _dsvHeap.GetCPUDescriptorHandleForHeapStart());
 
-        // SRV Heap (slot 0 = CBV, slot 1 = SRV текстуры)
         _srvHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
             2, DescriptorHeapFlags.ShaderVisible));
@@ -128,7 +125,6 @@ public class DX12Renderer : IDisposable
         uint cbvSrvDescSize = _device.GetDescriptorHandleIncrementSize(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
 
-        // Constant Buffer
         int cbSize = (Marshal.SizeOf<ConstantBufferData>() + 255) & ~255;
         _constantBuffer = _device.CreateCommittedResource(
             new HeapProperties(HeapType.Upload),
@@ -148,7 +144,6 @@ public class DX12Renderer : IDisposable
             _cbvDataBegin = (ConstantBufferData*)ptr;
         }
 
-        // Root Signature
         var rootParams = new RootParameter1[]
         {
             new RootParameter1(
@@ -178,7 +173,6 @@ public class DX12Renderer : IDisposable
                 rootParams,
                 new[] { sampler }));
 
-        // Компиляция шейдеров
         string shaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "shaders.hlsl");
         Compiler.CompileFromFile(shaderPath, null, null, "VSMain", "vs_5_0",
             ShaderFlags.Debug, out var vsByteCode, out var vsErrors);
@@ -195,7 +189,6 @@ public class DX12Renderer : IDisposable
         byte[] psBytes = new byte[psByteCode.BufferSize];
         Marshal.Copy(psByteCode.BufferPointer, psBytes, 0, psBytes.Length);
 
-        // Input Layout
         var inputLayout = new InputLayoutDescription(new[]
         {
             new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,    0, 0),
@@ -203,7 +196,6 @@ public class DX12Renderer : IDisposable
             new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,      24, 0),
         });
 
-        // PSO
         var psoDesc = new GraphicsPipelineStateDescription
         {
             RootSignature = _rootSignature,
@@ -225,12 +217,10 @@ public class DX12Renderer : IDisposable
         _commandList = _device.CreateCommandList<ID3D12GraphicsCommandList>(
             CommandListType.Direct, _commandAllocator, _pipelineState);
 
-        // Загрузка текстуры
         string texturePath = Path.Combine(AppContext.BaseDirectory, "Assets", "texture.png");
         _texture = TextureLoader.LoadTexture(_device, _commandList, texturePath,
             out _textureUploadBuffer);
 
-        // SRV для текстуры
         var srvCpuHandle = _srvHeap.GetCPUDescriptorHandleForHeapStart();
         srvCpuHandle.Ptr += cbvSrvDescSize;
         _device.CreateShaderResourceView(_texture,

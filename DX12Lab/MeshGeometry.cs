@@ -70,7 +70,6 @@ public class MeshGeometry : IDisposable
         var mesh = new MeshGeometry();
         mesh.IndexCount = indices.Length;
 
-        // Vertex Buffer
         int vbSize = Marshal.SizeOf<Vertex>() * vertices.Length;
         mesh.VertexBuffer = device.CreateCommittedResource(
             new HeapProperties(HeapType.Upload),
@@ -92,7 +91,6 @@ public class MeshGeometry : IDisposable
             (uint)vbSize,
             (uint)Marshal.SizeOf<Vertex>());
 
-        // Index Buffer
         int ibSize = sizeof(ushort) * indices.Length;
         mesh.IndexBuffer = device.CreateCommittedResource(
             new HeapProperties(HeapType.Upload),
