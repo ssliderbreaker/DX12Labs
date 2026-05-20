@@ -2,13 +2,13 @@
 
 public class DX12App : AppBase
 {
-    private DX12Renderer _renderer;
+    private RenderingSystem _renderer;
 
-    public DX12App() : base("DX12 Lab", 1280, 720) { }
+    public DX12App() : base("DX12lab", 1280, 720) { }
 
     protected override void Init()
     {
-        _renderer = new DX12Renderer(Window.Hwnd, Window.Width, Window.Height);
+        _renderer = new RenderingSystem(Window.Hwnd, Window.Width, Window.Height);
     }
 
     protected override void OnUpdate(double deltaTime) { }

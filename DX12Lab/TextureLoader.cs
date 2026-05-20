@@ -31,7 +31,6 @@ public static class TextureLoader
             textureDesc,
             ResourceStates.CopyDest);
 
-        // Получаем footprint для правильного выравнивания строк
         PlacedSubresourceFootPrint[] footprints = new PlacedSubresourceFootPrint[1];
         uint[] numRows = new uint[1];
         ulong[] rowSizes = new ulong[1];
@@ -45,7 +44,6 @@ public static class TextureLoader
             ResourceDescription.Buffer(totalBytes),
             ResourceStates.GenericRead);
 
-        // Копируем пиксели с учётом выравнивания строк (RowPitch может быть > width*4)
         unsafe
         {
             void* ptr = null;
@@ -69,7 +67,6 @@ public static class TextureLoader
             uploadBuffer.Unmap(0, null);
         }
 
-        // Правильная копия буфер → текстура
         var dst = new TextureCopyLocation(texture, 0);
         var src = new TextureCopyLocation(uploadBuffer, footprints[0]);
         commandList.CopyTextureRegion(dst, 0, 0, 0, src, null);

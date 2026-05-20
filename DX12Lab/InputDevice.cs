@@ -8,11 +8,10 @@ public class InputDevice
 {
     private readonly Window _window;
     private readonly HashSet<int> _keysDown = new();
-    private readonly HashSet<int> _keysPressed = new(); // нажата именно в этот кадр
+    private readonly HashSet<int> _keysPressed = new(); 
     private int _mouseX, _mouseY;
     private bool _leftButton, _rightButton;
 
-    // WinAPI сообщения
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_KEYUP = 0x0101;
     private const int WM_MOUSEMOVE = 0x0200;
@@ -29,11 +28,9 @@ public class InputDevice
     public InputDevice(Window window)
     {
         _window = window;
-        // Подписываемся на сообщения окна
         window.OnMessage += HandleMessage;
     }
 
-    // Вызывается в начале каждого кадра — сбрасываем однокадровые события
     public void Update()
     {
         _keysPressed.Clear();
