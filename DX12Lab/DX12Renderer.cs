@@ -47,6 +47,8 @@ public class DX12Renderer : IDisposable
     private int _width, _height;
     private float _rotationAngle = 0f;
 
+    private readonly Camera _camera = new();
+
     public DX12Renderer(IntPtr hwnd, int width, int height)
     {
         _width = width;
@@ -246,6 +248,10 @@ public class DX12Renderer : IDisposable
         _cubeMesh = MeshGeometry.CreateCube(_device);
     }
 
+    public void UpdateCamera(InputDevice input, float dt)
+    {
+        _camera.Update(input, dt);
+    }
     public void Render(double deltaTime)
     {
         _rotationAngle += (float)deltaTime;
