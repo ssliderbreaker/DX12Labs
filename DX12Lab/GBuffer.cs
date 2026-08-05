@@ -10,9 +10,9 @@ public class GBuffer : IDisposable
 
     public static readonly Format[] Formats = new[]
     {
-        Format.R32G32B32A32_Float, 
-        Format.R32G32B32A32_Float, 
-        Format.R8G8B8A8_UNorm,     
+        Format.R32G32B32A32_Float,
+        Format.R32G32B32A32_Float,
+        Format.R8G8B8A8_UNorm,
     };
 
     private ID3D12Device _device;
@@ -52,7 +52,7 @@ public class GBuffer : IDisposable
 
         SrvCpuHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-            Count)); 
+            Count));
 
         var rtvHandle = RtvHeap.GetCPUDescriptorHandleForHeapStart();
         var srvHandle = SrvHeap.GetCPUDescriptorHandleForHeapStart();

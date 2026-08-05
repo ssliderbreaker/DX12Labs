@@ -7,13 +7,12 @@ namespace DX12Lab;
 public class InputDevice
 {
     private readonly Window _window;
+    private readonly HashSet<int> _keysDownPrev = new();
     private readonly HashSet<int> _keysDown = new();
-    private readonly HashSet<int> _keysPressed = new(); 
+    private readonly HashSet<int> _keysPressed = new();
     private int _mouseX, _mouseY;
     private bool _leftButton, _rightButton;
 
-    private const int WM_KEYDOWN = 0x0100;
-    private const int WM_KEYUP = 0x0101;
     private const int WM_MOUSEMOVE = 0x0200;
     private const int WM_LBUTTONDOWN = 0x0201;
     private const int WM_LBUTTONUP = 0x0202;
@@ -34,6 +33,19 @@ public class InputDevice
     public void Update()
     {
         _keysPressed.Clear();
+        _keysDownPrev.Clear();
+        _keysDownPrev.UnionWith(_keysDown);
+        _keysDown.Clear();
+
+        for (int vk = 0x08; vk <= 0xFE; vk++)
+        {
+            if ((GetAsyncKeyState(vk) & 0x8000) != 0)
+            {
+                _keysDown.Add(vk);
+                if (!_keysDownPrev.Contains(vk))
+                    _keysPressed.Add(vk);
+            }
+        }
     }
 
     public bool IsKeyDown(int vkCode) => _keysDown.Contains(vkCode);
@@ -43,17 +55,6 @@ public class InputDevice
     {
         switch ((int)msg)
         {
-            case WM_KEYDOWN:
-                int key = (int)wParam;
-                if (!_keysDown.Contains(key))
-                    _keysPressed.Add(key);
-                _keysDown.Add(key);
-                break;
-
-            case WM_KEYUP:
-                _keysDown.Remove((int)wParam);
-                break;
-
             case WM_MOUSEMOVE:
                 _mouseX = (int)lParam & 0xFFFF;
                 _mouseY = ((int)lParam >> 16) & 0xFFFF;
@@ -65,4 +66,7 @@ public class InputDevice
             case WM_RBUTTONUP: _rightButton = false; break;
         }
     }
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 }

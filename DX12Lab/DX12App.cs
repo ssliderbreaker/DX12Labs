@@ -10,6 +10,11 @@ public class DX12App : AppBase
     protected override void Init()
     {
         _renderer = new RenderingSystem(Window.Hwnd, Window.Width, Window.Height);
+
+        _renderer.DisplacementScale = 0.02f;
+        _renderer.TessMax = 16f;
+
+        Window.OnResize += (width, height) => _renderer.Resize(width, height);
     }
 
     protected override void OnUpdate(double deltaTime)

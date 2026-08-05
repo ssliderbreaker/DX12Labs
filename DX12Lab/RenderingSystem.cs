@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Vortice.D3DCompiler;
@@ -17,6 +18,13 @@ public struct GeometryConstantBuffer
 {
     public Matrix4x4 WorldViewProj;
     public Matrix4x4 World;
+    public Matrix4x4 WorldInvTranspose;
+    public Vector3 CameraPos;
+    public float DisplacementScale;
+    public float TessMin;
+    public float TessMax;
+    public float TessNearDist;
+    public float TessFarDist;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -28,26 +36,17 @@ public struct LightData
     public Vector4 SpotParams;
 }
 
+[InlineArray(16)]
+public struct LightArray16
+{
+    private LightData _element0;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 16)]
 public struct LightingConstantBuffer
 {
     public Vector4 CameraPos;
-    public LightData Light0;
-    public LightData Light1;
-    public LightData Light2;
-    public LightData Light3;
-    public LightData Light4;
-    public LightData Light5;
-    public LightData Light6;
-    public LightData Light7;
-    public LightData Light8;
-    public LightData Light9;
-    public LightData Light10;
-    public LightData Light11;
-    public LightData Light12;
-    public LightData Light13;
-    public LightData Light14;
-    public LightData Light15;
+    public LightArray16 Lights;
     public int LightCount;
     public Vector3 Padding;
 }
@@ -59,7 +58,7 @@ public class RenderingSystem : IDisposable
     private ID3D12Device _device;
     private IDXGISwapChain3 _swapChain;
     private ID3D12CommandQueue _commandQueue;
-    private ID3D12CommandAllocator _commandAllocator;
+    private ID3D12CommandAllocator[] _commandAllocators = new ID3D12CommandAllocator[FrameCount];
     private ID3D12GraphicsCommandList _commandList;
 
     private ID3D12DescriptorHeap _rtvHeap;
@@ -88,7 +87,7 @@ public class RenderingSystem : IDisposable
     private Dictionary<string, uint> _textureIndices = new();
 
     private ID3D12Fence _fence;
-    private ulong _fenceValue;
+    private ulong[] _fenceValues = new ulong[FrameCount];
     private EventWaitHandle _fenceEvent;
 
     private uint _frameIndex;
@@ -101,6 +100,16 @@ public class RenderingSystem : IDisposable
     public Vector3 CameraTarget { get; set; } = new Vector3(10, 3, 0);
     public List<LightData> Lights { get; } = new();
 
+    public float DisplacementScale { get; set; } = 1.0f;
+    public float TessMin { get; set; } = 1.0f;
+    public float TessMax { get; set; } = 16.0f;
+    public float TessNearDist { get; set; } = 5.0f;
+    public float TessFarDist { get; set; } = 50.0f;
+
+    private ID3D12Resource _globalDisplacementTex;
+    private ID3D12Resource _globalNormalTex;
+    private uint _globalTexHeapOffset;
+
     public RenderingSystem(IntPtr hwnd, int width, int height)
     {
         _width = width;
@@ -110,6 +119,11 @@ public class RenderingSystem : IDisposable
 
     private void Init(IntPtr hwnd)
     {
+#if DEBUG
+        if (D3D12.D3D12GetDebugInterface<ID3D12Debug>(out var debug).Success)
+            debug!.EnableDebugLayer();
+#endif
+
         DXGI.CreateDXGIFactory2(false, out IDXGIFactory4 factory);
 
         var res = D3D12.D3D12CreateDevice(null,
@@ -137,6 +151,34 @@ public class RenderingSystem : IDisposable
             new DescriptorHeapDescription(DescriptorHeapType.RenderTargetView, FrameCount));
         _rtvDescriptorSize = _device.GetDescriptorHandleIncrementSize(
             DescriptorHeapType.RenderTargetView);
+        CreateRenderTargetViews();
+
+        _dsvHeap = _device.CreateDescriptorHeap(
+            new DescriptorHeapDescription(DescriptorHeapType.DepthStencilView, 1));
+        CreateDepthBuffer();
+
+        _gBuffer = new GBuffer(_device, _width, _height);
+
+        _fence = _device.CreateFence(0);
+        _fenceEvent = new EventWaitHandle(false, EventResetMode.AutoReset);
+
+        _geometryDescSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+
+        CreateGeometryPass();
+        CreateLightingPass();
+
+        for (int i = 0; i < FrameCount; i++)
+            _commandAllocators[i] = _device.CreateCommandAllocator(CommandListType.Direct);
+        _commandList = _device.CreateCommandList<ID3D12GraphicsCommandList>(
+            CommandListType.Direct, _commandAllocators[_frameIndex], _geometryPso);
+
+        LoadScene();
+        SetupLights();
+    }
+
+    private void CreateRenderTargetViews()
+    {
         var rtvHandle = _rtvHeap.GetCPUDescriptorHandleForHeapStart();
         for (int i = 0; i < FrameCount; i++)
         {
@@ -144,9 +186,10 @@ public class RenderingSystem : IDisposable
             _device.CreateRenderTargetView(_renderTargets[i], null, rtvHandle);
             rtvHandle.Ptr += _rtvDescriptorSize;
         }
+    }
 
-        _dsvHeap = _device.CreateDescriptorHeap(
-            new DescriptorHeapDescription(DescriptorHeapType.DepthStencilView, 1));
+    private void CreateDepthBuffer()
+    {
         _depthBuffer = _device.CreateCommittedResource(
             new HeapProperties(HeapType.Default), HeapFlags.None,
             ResourceDescription.Texture2D(Format.D32_Float,
@@ -161,22 +204,6 @@ public class RenderingSystem : IDisposable
                 ViewDimension = DepthStencilViewDimension.Texture2D
             },
             _dsvHeap.GetCPUDescriptorHandleForHeapStart());
-
-        _gBuffer = new GBuffer(_device, _width, _height);
-
-        _fence = _device.CreateFence(0);
-        _fenceValue = 1;
-        _fenceEvent = new EventWaitHandle(false, EventResetMode.AutoReset);
-
-        CreateGeometryPass();
-        CreateLightingPass();
-
-        _commandAllocator = _device.CreateCommandAllocator(CommandListType.Direct);
-        _commandList = _device.CreateCommandList<ID3D12GraphicsCommandList>(
-            CommandListType.Direct, _commandAllocator, _geometryPso);
-
-        LoadScene();
-        SetupLights();
     }
 
     private byte[] CompileShader(string path, string entry, string profile)
@@ -203,9 +230,13 @@ public class RenderingSystem : IDisposable
                 new RootDescriptorTable1(new DescriptorRange1(
                     DescriptorRangeType.ShaderResourceView, 1, 0)),
                 ShaderVisibility.Pixel),
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(
+                    DescriptorRangeType.ShaderResourceView, 2, 1)),
+                ShaderVisibility.All),
         };
 
-        var sampler = new StaticSamplerDescription(ShaderVisibility.Pixel, 0, 0)
+        var sampler = new StaticSamplerDescription(ShaderVisibility.All, 0, 0)
         {
             Filter = Filter.Anisotropic,
             AddressU = TextureAddressMode.Wrap,
@@ -224,6 +255,8 @@ public class RenderingSystem : IDisposable
         string shaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "geometry_pass.hlsl");
         var vs = CompileShader(shaderPath, "VSMain", "vs_5_0");
         var ps = CompileShader(shaderPath, "PSMain", "ps_5_0");
+        var hs = CompileShader(shaderPath, "HSMain", "hs_5_0");
+        var ds = CompileShader(shaderPath, "DSMain", "ds_5_0");
 
         _geometryPso = _device.CreateGraphicsPipelineState(
             new GraphicsPipelineStateDescription
@@ -231,6 +264,8 @@ public class RenderingSystem : IDisposable
                 RootSignature = _geometryRootSig,
                 VertexShader = vs,
                 PixelShader = ps,
+                HullShader = hs,
+                DomainShader = ds,
                 InputLayout = new InputLayoutDescription(new[]
                 {
                     new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,  0, 0),
@@ -238,7 +273,7 @@ public class RenderingSystem : IDisposable
                     new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,    24, 0),
                 }),
                 SampleMask = uint.MaxValue,
-                PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
+                PrimitiveTopologyType = PrimitiveTopologyType.Patch,
                 RasterizerState = new RasterizerDescription(CullMode.None, FillMode.Solid),
                 BlendState = BlendDescription.Opaque,
                 DepthStencilState = DepthStencilDescription.Default,
@@ -259,16 +294,6 @@ public class RenderingSystem : IDisposable
             _geometryCbData = (GeometryConstantBuffer*)ptr;
         }
 
-        _geometryDescSize = _device.GetDescriptorHandleIncrementSize(
-            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
-
-        _geometryDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
-            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-            129, DescriptorHeapFlags.ShaderVisible));
-
-        _device.CreateConstantBufferView(
-            new ConstantBufferViewDescription(_geometryCb.GPUVirtualAddress, (uint)cbSize),
-            _geometryDescHeap.GetCPUDescriptorHandleForHeapStart());
     }
 
     private void CreateLightingPass()
@@ -336,6 +361,19 @@ public class RenderingSystem : IDisposable
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
             4, DescriptorHeapFlags.ShaderVisible));
 
+        RefreshLightingGBufferDescriptors();
+
+        uint descSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+        var cbvHandle = _lightingDescHeap.GetCPUDescriptorHandleForHeapStart();
+        cbvHandle.Ptr += (uint)GBuffer.Count * descSize;
+        _device.CreateConstantBufferView(
+            new ConstantBufferViewDescription(_lightingCb.GPUVirtualAddress, (uint)cbSize),
+            cbvHandle);
+    }
+
+    private void RefreshLightingGBufferDescriptors()
+    {
         uint descSize = _device.GetDescriptorHandleIncrementSize(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
 
@@ -348,16 +386,23 @@ public class RenderingSystem : IDisposable
             dstHandle.Ptr += descSize;
             srcHandle.Ptr += _gBuffer.SrvDescriptorSize;
         }
-
-        _device.CreateConstantBufferView(
-            new ConstantBufferViewDescription(_lightingCb.GPUVirtualAddress, (uint)cbSize),
-            dstHandle);
     }
 
     private void LoadScene()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Assets", "Sponza", "sponza.obj");
         _model = ModelLoader.Load(_device, _commandList, path, _uploadBuffers);
+
+        uint textureCount = (uint)_model.Textures.Count;
+        _globalTexHeapOffset = 1 + textureCount;
+        _geometryDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+            1 + textureCount + 2, DescriptorHeapFlags.ShaderVisible));
+
+        int cbSize = (Marshal.SizeOf<GeometryConstantBuffer>() + 255) & ~255;
+        _device.CreateConstantBufferView(
+            new ConstantBufferViewDescription(_geometryCb.GPUVirtualAddress, (uint)cbSize),
+            _geometryDescHeap.GetCPUDescriptorHandleForHeapStart());
 
         uint slot = 0;
         foreach (var (texPath, tex) in _model.Textures)
@@ -376,6 +421,36 @@ public class RenderingSystem : IDisposable
             slot++;
         }
 
+        string displacementPath = Path.Combine(AppContext.BaseDirectory, "Assets", "displacement.png");
+        string normalPath = Path.Combine(AppContext.BaseDirectory, "Assets", "normal.png");
+
+        _globalDisplacementTex = TextureLoader.LoadTexture(_device, _commandList, displacementPath, out var dispUpload);
+        _uploadBuffers.Add(dispUpload);
+        _globalNormalTex = TextureLoader.LoadTexture(_device, _commandList, normalPath, out var normUpload);
+        _uploadBuffers.Add(normUpload);
+
+        var dispHandle = _geometryDescHeap.GetCPUDescriptorHandleForHeapStart();
+        dispHandle.Ptr += _globalTexHeapOffset * _geometryDescSize;
+        _device.CreateShaderResourceView(_globalDisplacementTex,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.R8G8B8A8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Shader4ComponentMapping = ShaderComponentMapping.Default,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 }
+            }, dispHandle);
+
+        var normHandle = _geometryDescHeap.GetCPUDescriptorHandleForHeapStart();
+        normHandle.Ptr += (_globalTexHeapOffset + 1) * _geometryDescSize;
+        _device.CreateShaderResourceView(_globalNormalTex,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.R8G8B8A8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Shader4ComponentMapping = ShaderComponentMapping.Default,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 }
+            }, normHandle);
+
         _commandList.Close();
         _commandQueue.ExecuteCommandLists(new[] { (ID3D12CommandList)_commandList });
         WaitForGpu();
@@ -383,8 +458,8 @@ public class RenderingSystem : IDisposable
         foreach (var buf in _uploadBuffers) buf?.Dispose();
         _uploadBuffers.Clear();
 
-        _commandAllocator.Reset();
-        _commandList.Reset(_commandAllocator, _geometryPso);
+        _commandAllocators[_frameIndex].Reset();
+        _commandList.Reset(_commandAllocators[_frameIndex], _geometryPso);
         _commandList.Close();
     }
 
@@ -400,8 +475,8 @@ public class RenderingSystem : IDisposable
 
         Lights.Add(new LightData
         {
-            Position = new Vector4(0, 10, 0, 30), 
-            Direction = new Vector4(0, -1, 0, 1),        
+            Position = new Vector4(0, 10, 0, 30),
+            Direction = new Vector4(0, -1, 0, 1),
             Color = new Vector4(1f, 0.5f, 0.2f, 3f),
         });
 
@@ -415,24 +490,40 @@ public class RenderingSystem : IDisposable
 
     public void Render(double deltaTime)
     {
-        WaitForGpu();
-        _commandAllocator.Reset();
-        _commandList.Reset(_commandAllocator, _geometryPso);
-
         try
         {
+            _commandAllocators[_frameIndex].Reset();
+            _commandList.Reset(_commandAllocators[_frameIndex], _geometryPso);
+
             GeometryPass();
             LightingPass();
             _commandList.Close();
+
+            _commandQueue.ExecuteCommandLists(new[] { (ID3D12CommandList)_commandList });
+            _swapChain.Present(1, PresentFlags.None);
+
+            MoveToNextFrame();
         }
         catch (Exception ex)
         {
             System.Windows.Forms.MessageBox.Show(ex.ToString(), "Render Error");
-            return;
+        }
+    }
+
+    private void MoveToNextFrame()
+    {
+        ulong currentFenceValue = _fenceValues[_frameIndex];
+        _commandQueue.Signal(_fence, currentFenceValue);
+
+        _frameIndex = _swapChain.CurrentBackBufferIndex;
+
+        if (_fence.CompletedValue < _fenceValues[_frameIndex])
+        {
+            _fence.SetEventOnCompletion(_fenceValues[_frameIndex], _fenceEvent);
+            _fenceEvent.WaitOne();
         }
 
-        _commandQueue.ExecuteCommandLists(new[] { (ID3D12CommandList)_commandList });
-        _swapChain.Present(1, PresentFlags.None);
+        _fenceValues[_frameIndex] = currentFenceValue + 1;
     }
 
     private void GeometryPass()
@@ -466,21 +557,36 @@ public class RenderingSystem : IDisposable
         _commandList.SetPipelineState(_geometryPso);
         _commandList.RSSetViewport(new Viewport(0, 0, _width, _height));
         _commandList.RSSetScissorRect(new Vortice.RawRect(0, 0, _width, _height));
-        _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+        _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.PatchListWith3ControlPoints);
 
         var view = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
         var proj = Matrix4x4.CreatePerspectiveFieldOfView(
             MathF.PI / 4f, (float)_width / _height, 0.01f, 500f);
+
+        var world = Matrix4x4.Identity;
+        Matrix4x4.Invert(world, out var worldInv);
+
         unsafe
         {
-            _geometryCbData->WorldViewProj = Matrix4x4.Transpose(Matrix4x4.Identity * view * proj);
-            _geometryCbData->World = Matrix4x4.Transpose(Matrix4x4.Identity);
+            _geometryCbData->WorldViewProj = Matrix4x4.Transpose(world * view * proj);
+            _geometryCbData->World = Matrix4x4.Transpose(world);
+            _geometryCbData->WorldInvTranspose = Matrix4x4.Transpose(worldInv);
+            _geometryCbData->CameraPos = CameraPos;
+            _geometryCbData->DisplacementScale = DisplacementScale;
+            _geometryCbData->TessMin = TessMin;
+            _geometryCbData->TessMax = TessMax;
+            _geometryCbData->TessNearDist = TessNearDist;
+            _geometryCbData->TessFarDist = TessFarDist;
         }
 
         _commandList.SetDescriptorHeaps(_geometryDescHeap);
 
         _commandList.SetGraphicsRootDescriptorTable(0,
             _geometryDescHeap.GetGPUDescriptorHandleForHeapStart());
+
+        var globalTexHandle = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+        globalTexHandle.Ptr += _globalTexHeapOffset * _geometryDescSize;
+        _commandList.SetGraphicsRootDescriptorTable(2, globalTexHandle);
 
         foreach (var mesh in _model.Meshes)
         {
@@ -524,9 +630,8 @@ public class RenderingSystem : IDisposable
         {
             _lightingCbData->CameraPos = new Vector4(CameraPos, 1);
             _lightingCbData->LightCount = Math.Min(Lights.Count, 16);
-            LightData* lightsPtr = &_lightingCbData->Light0;
             for (int i = 0; i < _lightingCbData->LightCount; i++)
-                lightsPtr[i] = Lights[i];
+                _lightingCbData->Lights[i] = Lights[i];
         }
 
         uint descSize = _device.GetDescriptorHandleIncrementSize(
@@ -553,11 +658,40 @@ public class RenderingSystem : IDisposable
 
     private void WaitForGpu()
     {
-        _commandQueue.Signal(_fence, _fenceValue);
-        _fence.SetEventOnCompletion(_fenceValue, _fenceEvent);
+        ulong value = _fenceValues[_frameIndex] + 1;
+        _commandQueue.Signal(_fence, value);
+        _fence.SetEventOnCompletion(value, _fenceEvent);
         _fenceEvent.WaitOne();
-        _fenceValue++;
+        _fenceValues[_frameIndex] = value;
         _frameIndex = _swapChain.CurrentBackBufferIndex;
+    }
+
+    public void Resize(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return;
+        if (width == _width && height == _height) return;
+
+        WaitForGpu();
+
+        foreach (var rt in _renderTargets) rt?.Dispose();
+        _depthBuffer?.Dispose();
+        _gBuffer?.Dispose();
+
+        _width = width;
+        _height = height;
+
+        _swapChain.ResizeBuffers((uint)FrameCount, (uint)_width, (uint)_height,
+            Format.R8G8B8A8_UNorm, SwapChainFlags.None);
+        _frameIndex = _swapChain.CurrentBackBufferIndex;
+
+        CreateRenderTargetViews();
+        CreateDepthBuffer();
+
+        _gBuffer = new GBuffer(_device, _width, _height);
+        RefreshLightingGBufferDescriptors();
+
+        for (int i = 0; i < FrameCount; i++)
+            _fenceValues[i] = _fenceValues[_frameIndex];
     }
 
     public void Dispose()
@@ -569,6 +703,8 @@ public class RenderingSystem : IDisposable
             _lightingCb?.Unmap(0, null);
         }
         _model?.Dispose();
+        _globalDisplacementTex?.Dispose();
+        _globalNormalTex?.Dispose();
         _gBuffer?.Dispose();
         _geometryPso?.Dispose();
         _geometryRootSig?.Dispose();
@@ -587,7 +723,7 @@ public class RenderingSystem : IDisposable
         _swapChain?.Dispose();
         _commandQueue?.Dispose();
         _commandList?.Dispose();
-        _commandAllocator?.Dispose();
+        foreach (var alloc in _commandAllocators) alloc?.Dispose();
         _device?.Dispose();
     }
 }

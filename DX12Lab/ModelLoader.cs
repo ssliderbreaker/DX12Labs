@@ -36,7 +36,12 @@ public class Mesh : IDisposable
 public class Material
 {
     public string DiffuseTexturePath { get; set; } = "";
+    public string DisplacementTexturePath { get; set; } = "";
+    public string NormalTexturePath { get; set; } = "";
     public Vector4 DiffuseColor { get; set; } = Vector4.One;
+
+    public bool HasDisplacement => !string.IsNullOrEmpty(DisplacementTexturePath);
+    public bool HasNormalMap => !string.IsNullOrEmpty(NormalTexturePath);
 }
 
 public class Model : IDisposable
@@ -72,19 +77,28 @@ public static class ModelLoader
         foreach (var mat in scene.Materials)
         {
             var material = new Material();
+
             if (mat.HasTextureDiffuse)
             {
                 string texPath = Path.Combine(dir, mat.TextureDiffuse.FilePath);
                 material.DiffuseTexturePath = texPath;
-
-                if (!model.Textures.ContainsKey(texPath) && File.Exists(texPath))
-                {
-                    var tex = TextureLoader.LoadTexture(device, commandList,
-                        texPath, out var uploadBuf);
-                    model.Textures[texPath] = tex;
-                    uploadBuffers.Add(uploadBuf);
-                }
+                LoadTexture(device, commandList, texPath, model, uploadBuffers);
             }
+
+            if (mat.HasTextureHeight)
+            {
+                string texPath = Path.Combine(dir, mat.TextureHeight.FilePath);
+                material.DisplacementTexturePath = texPath;
+                LoadTexture(device, commandList, texPath, model, uploadBuffers);
+            }
+
+            if (mat.HasTextureNormal)
+            {
+                string texPath = Path.Combine(dir, mat.TextureNormal.FilePath);
+                material.NormalTexturePath = texPath;
+                LoadTexture(device, commandList, texPath, model, uploadBuffers);
+            }
+
             model.Materials.Add(material);
         }
 
@@ -169,5 +183,21 @@ public static class ModelLoader
         }
 
         return model;
+    }
+
+    private static void LoadTexture(
+        ID3D12Device device,
+        ID3D12GraphicsCommandList commandList,
+        string texPath,
+        Model model,
+        List<ID3D12Resource> uploadBuffers)
+    {
+        if (model.Textures.ContainsKey(texPath)) return;
+        if (!File.Exists(texPath)) return;
+
+        var tex = TextureLoader.LoadTexture(device, commandList,
+            texPath, out var uploadBuf);
+        model.Textures[texPath] = tex;
+        uploadBuffers.Add(uploadBuf);
     }
 }

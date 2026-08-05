@@ -18,11 +18,14 @@ public class Window
     private const int WM_DESTROY = 0x0002;
     private const int WM_CLOSE = 0x0010;
     private const int WM_QUIT = 0x0012;
+    private const int WM_SIZE = 0x0005;
+    private const int SIZE_MINIMIZED = 1;
 
     private delegate IntPtr WndProcDelegate(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     private WndProcDelegate _wndProcDelegate;
 
     public event Action<uint, IntPtr, IntPtr>? OnMessage;
+    public event Action<int, int>? OnResize;
     private Action? _updateCallback;
     public Window(string title, int width, int height)
     {
@@ -57,7 +60,17 @@ public class Window
 
         if (Hwnd == IntPtr.Zero)
             throw new Exception($"CreateWindowEx failed: {Marshal.GetLastWin32Error()}");
+
+        SetForegroundWindow(Hwnd);
+        SetFocus(Hwnd);
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
     public void SetUpdateCallback(Action callback)
     {
         _updateCallback = callback;
@@ -104,6 +117,16 @@ public class Window
                 return IntPtr.Zero;
             case WM_DESTROY:
                 PostQuitMessage(0);
+                return IntPtr.Zero;
+            case WM_SIZE:
+                if ((int)wParam == SIZE_MINIMIZED)
+                    return IntPtr.Zero;
+
+                int newWidth = (int)lParam & 0xFFFF;
+                int newHeight = ((int)lParam >> 16) & 0xFFFF;
+                Width = newWidth;
+                Height = newHeight;
+                OnResize?.Invoke(newWidth, newHeight);
                 return IntPtr.Zero;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);

@@ -16,6 +16,7 @@ newmtl sp_00_luk_mali
 	map_Kd SP_LUK.JPG
 	map_bump sp_luk-bump.JPG
 	bump sp_luk-bump.JPG
+	map_norm sp_luk-normal.jpg
 
 newmtl sp_svod_kapitel
 	Ns 50.000000
@@ -60,6 +61,7 @@ newmtl sp_01_stub_kut
 	map_Kd 01_STUB.JPG
 	map_bump 01_STUB-bump.jpg
 	bump 01_STUB-bump.jpg
+	map_norm 01_STUB-normal.jpg
 
 newmtl sp_00_stup
 	Ns 50.000000
@@ -76,6 +78,7 @@ newmtl sp_00_stup
 	map_Kd 01_STUB.JPG
 	map_bump 01_STUB-bump.jpg
 	bump 01_STUB-bump.jpg
+	map_norm 01_STUB-normal.jpg
 
 newmtl sp_01_stub_baza
 	Ns 50.000000
@@ -108,6 +111,7 @@ newmtl sp_00_luk_mal1
 	map_Kd 01_ST_KP.JPG
 	map_bump 01_St_kp-bump.jpg
 	bump 01_St_kp-bump.jpg
+	map_norm 01_St_kp-normal.jpg
 
 newmtl sp_01_stub
 	Ns 50.000000
@@ -124,6 +128,7 @@ newmtl sp_01_stub
 	map_Kd 01_STUB.JPG
 	map_bump 01_STUB-bump.jpg
 	bump 01_STUB-bump.jpg
+	map_norm 01_STUB-normal.jpg
 
 newmtl sp_01_stup
 	Ns 50.000000
@@ -138,6 +143,9 @@ newmtl sp_01_stup
 	Ke 0.000000 0.000000 0.000000
 	map_Ka X01_ST.JPG
 	map_Kd X01_ST.JPG
+	map_bump x01_st-bump.jpg
+	bump x01_st-bump.jpg
+	map_norm x01_st-normal.jpg
 
 newmtl sp_vijenac
 	Ns 50.000000
@@ -166,10 +174,10 @@ newmtl sp_00_svod
 	Kd 0.941177 0.866667 0.737255
 	Ks 0.034039 0.032314 0.029333
 	Ke 0.000000 0.000000 0.000000
-        map_Kd KAMEN-stup.JPG
-        map_Ka KAMEN-stup.JPG
-        map_bump KAMEN-stup.jpg
-        bump KAMEN-stup.jpg
+	map_Kd KAMEN-stup.JPG
+	map_Ka KAMEN-stup.JPG
+	map_bump KAMEN-stup.jpg
+	bump KAMEN-stup.jpg
 
 newmtl sp_02_reljef
 	Ns 50.000000
@@ -186,6 +194,7 @@ newmtl sp_02_reljef
 	map_Kd RELJEF.JPG
 	map_bump reljef-bump.jpg
 	bump reljef-bump.jpg
+	map_norm reljef-normal.jpg
 
 newmtl sp_01_luk_a
 	Ns 50.000000
@@ -202,6 +211,7 @@ newmtl sp_01_luk_a
 	map_Kd SP_LUK.JPG
 	map_bump sp_luk-bump.JPG
 	bump sp_luk-bump.JPG
+	map_norm sp_luk-normal.jpg
 
 newmtl sp_zid_vani
 	Ns 50.000000
@@ -218,6 +228,7 @@ newmtl sp_zid_vani
 	map_Kd KAMEN.JPG
 	map_bump KAMEN-bump.jpg
 	bump KAMEN-bump.jpg
+	map_norm KAMEN-normal.jpg
 
 newmtl sp_01_stup_baza
 	Ns 50.000000
@@ -250,6 +261,7 @@ newmtl sp_00_zid
 	map_Kd KAMEN.JPG
 	map_bump KAMEN-bump.jpg
 	bump KAMEN-bump.jpg
+	map_norm KAMEN-normal.jpg
 
 newmtl sp_00_prozor
 	Ns 50.000000
@@ -298,6 +310,7 @@ newmtl sp_00_pod
 	map_Kd KAMEN.JPG
 	map_bump KAMEN-bump.jpg
 	bump KAMEN-bump.jpg
+	map_norm KAMEN-normal.jpg
 
 newmtl sp_00_vrata_kock
 	Ns 19.999998

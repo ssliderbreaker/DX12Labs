@@ -5,10 +5,10 @@ SamplerState gSampler : register(s0);
 
 struct LightData
 {
-    float4 Position; 
+    float4 Position;
     float4 Direction;
-    float4 Color; 
-    float4 SpotParams; 
+    float4 Color;
+    float4 SpotParams;
 };
 
 cbuffer LightingBuffer : register(b0)
@@ -36,15 +36,15 @@ VertexOut VSMain(uint id : SV_VertexID)
 
 float4 CalcLight(LightData light, float3 worldPos, float3 normal, float3 viewDir, float4 albedo)
 {
-    float3 lightDir = float3(0, 1, 0); // инициализация по умолчанию
+    float3 lightDir = float3(0, 1, 0); 
     float attenuation = 1.0f;
     int type = (int) light.Direction.w;
 
-    if (type == 0) // Directional
+    if (type == 0) 
     {
         lightDir = normalize(-light.Direction.xyz);
     }
-    else if (type == 1) // Point
+    else if (type == 1) 
     {
         float3 toLight = light.Position.xyz - worldPos;
         float dist = length(toLight);
@@ -54,7 +54,7 @@ float4 CalcLight(LightData light, float3 worldPos, float3 normal, float3 viewDir
         attenuation = 1.0f - saturate(dist / light.Position.w);
         attenuation *= attenuation;
     }
-    else // Spot
+    else 
     {
         float3 toLight = light.Position.xyz - worldPos;
         float dist = length(toLight);
