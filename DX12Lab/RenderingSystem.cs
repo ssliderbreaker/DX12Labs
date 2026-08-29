@@ -54,6 +54,7 @@ public struct LightingConstantBuffer
 public class RenderingSystem : IDisposable
 {
     private const int FrameCount = 2;
+    private const int MaxInstances = 4000;
 
     private ID3D12Device _device;
     private IDXGISwapChain3 _swapChain;
@@ -109,6 +110,29 @@ public class RenderingSystem : IDisposable
     private ID3D12Resource _globalDisplacementTex;
     private ID3D12Resource _globalNormalTex;
     private uint _globalTexHeapOffset;
+
+    private List<SceneObject> _sceneObjects = new();
+    private Octree _octree;
+
+    private Mesh _cubeMesh;
+    private ID3D12Resource _cubeDiffuseTex;
+
+    private ID3D12RootSignature _instanceRootSig;
+    private ID3D12PipelineState _instancePso;
+    private ID3D12DescriptorHeap _instanceDescHeap;
+
+    private ID3D12Resource _instanceViewProjCb;
+    private unsafe Matrix4x4* _instanceViewProjCbData;
+
+    private ID3D12Resource _instanceDataBuffer;
+    private unsafe InstanceGpuData* _instanceDataPtr;
+
+    public bool FrustumCullingEnabled { get; set; } = true;
+    public bool OctreeAccelerationEnabled { get; set; } = true;
+    public int TotalInstanceCount => _sceneObjects.Count;
+    public int VisibleInstanceCount { get; private set; }
+
+    private readonly List<int> _cullResults = new();
 
     public RenderingSystem(IntPtr hwnd, int width, int height)
     {
@@ -173,8 +197,13 @@ public class RenderingSystem : IDisposable
         _commandList = _device.CreateCommandList<ID3D12GraphicsCommandList>(
             CommandListType.Direct, _commandAllocators[_frameIndex], _geometryPso);
 
+        CreateInstancePass();
+
         LoadScene();
         SetupLights();
+
+        _sceneObjects = SceneGenerator.Generate(MaxInstances);
+        BuildOctree();
     }
 
     private void CreateRenderTargetViews()
@@ -232,8 +261,12 @@ public class RenderingSystem : IDisposable
                 ShaderVisibility.Pixel),
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
-                    DescriptorRangeType.ShaderResourceView, 2, 1)),
+                    DescriptorRangeType.ShaderResourceView, 1, 1)),
                 ShaderVisibility.All),
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(
+                    DescriptorRangeType.ShaderResourceView, 1, 2)),
+                ShaderVisibility.Pixel),
         };
 
         var sampler = new StaticSamplerDescription(ShaderVisibility.All, 0, 0)
@@ -388,6 +421,120 @@ public class RenderingSystem : IDisposable
         }
     }
 
+    private void CreateInstancePass()
+    {
+        var rootParams = new RootParameter1[]
+        {
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(
+                    DescriptorRangeType.ConstantBufferView, 1, 0)),
+                ShaderVisibility.Vertex),
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(
+                    DescriptorRangeType.ShaderResourceView, 1, 0)),
+                ShaderVisibility.Pixel),
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(
+                    DescriptorRangeType.ShaderResourceView, 1, 1)),
+                ShaderVisibility.Vertex),
+        };
+
+        var sampler = new StaticSamplerDescription(ShaderVisibility.Pixel, 0, 0)
+        {
+            Filter = Filter.Anisotropic,
+            AddressU = TextureAddressMode.Wrap,
+            AddressV = TextureAddressMode.Wrap,
+            AddressW = TextureAddressMode.Wrap,
+            MaxAnisotropy = 16,
+            ComparisonFunction = ComparisonFunction.Always,
+            MaxLOD = float.MaxValue,
+        };
+
+        _instanceRootSig = _device.CreateRootSignature(
+            new RootSignatureDescription1(
+                RootSignatureFlags.AllowInputAssemblerInputLayout,
+                rootParams, new[] { sampler }));
+
+        string shaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "instance_pass.hlsl");
+        var vs = CompileShader(shaderPath, "VSMain", "vs_5_0");
+        var ps = CompileShader(shaderPath, "PSMain", "ps_5_0");
+
+        _instancePso = _device.CreateGraphicsPipelineState(
+            new GraphicsPipelineStateDescription
+            {
+                RootSignature = _instanceRootSig,
+                VertexShader = vs,
+                PixelShader = ps,
+                InputLayout = new InputLayoutDescription(new[]
+                {
+                    new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,  0, 0),
+                    new InputElementDescription("NORMAL",   0, Format.R32G32B32_Float, 12, 0),
+                    new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,    24, 0),
+                }),
+                SampleMask = uint.MaxValue,
+                PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
+                RasterizerState = new RasterizerDescription(CullMode.Back, FillMode.Solid),
+                BlendState = BlendDescription.Opaque,
+                DepthStencilState = DepthStencilDescription.Default,
+                RenderTargetFormats = GBuffer.Formats,
+                DepthStencilFormat = Format.D32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+            });
+
+        _cubeMesh = CubeMesh.Create(_device);
+
+        int cbSize = (Marshal.SizeOf<Matrix4x4>() + 255) & ~255;
+        _instanceViewProjCb = _device.CreateCommittedResource(
+            new HeapProperties(HeapType.Upload), HeapFlags.None,
+            ResourceDescription.Buffer((ulong)cbSize), ResourceStates.GenericRead);
+        unsafe
+        {
+            void* ptr = null;
+            _instanceViewProjCb.Map(0, null, &ptr);
+            _instanceViewProjCbData = (Matrix4x4*)ptr;
+        }
+
+        int strideBytes = Marshal.SizeOf<InstanceGpuData>();
+        _instanceDataBuffer = _device.CreateCommittedResource(
+            new HeapProperties(HeapType.Upload), HeapFlags.None,
+            ResourceDescription.Buffer((ulong)(strideBytes * MaxInstances)),
+            ResourceStates.GenericRead);
+        unsafe
+        {
+            void* ptr = null;
+            _instanceDataBuffer.Map(0, null, &ptr);
+            _instanceDataPtr = (InstanceGpuData*)ptr;
+        }
+
+        _instanceDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+            3, DescriptorHeapFlags.ShaderVisible));
+
+        uint descSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+        var handle = _instanceDescHeap.GetCPUDescriptorHandleForHeapStart();
+
+        _device.CreateConstantBufferView(
+            new ConstantBufferViewDescription(_instanceViewProjCb.GPUVirtualAddress, (uint)cbSize),
+            handle);
+        handle.Ptr += descSize;
+        handle.Ptr += descSize;
+
+        _device.CreateShaderResourceView(_instanceDataBuffer,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.Unknown,
+                ViewDimension = ShaderResourceViewDimension.Buffer,
+                Shader4ComponentMapping = ShaderComponentMapping.Default,
+                Buffer = new BufferShaderResourceView
+                {
+                    FirstElement = 0,
+                    NumElements = (uint)MaxInstances,
+                    StructureByteStride = (uint)strideBytes,
+                }
+            }, handle);
+    }
+
     private void LoadScene()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Assets", "Sponza", "sponza.obj");
@@ -451,6 +598,23 @@ public class RenderingSystem : IDisposable
                 Texture2D = new Texture2DShaderResourceView { MipLevels = 1 }
             }, normHandle);
 
+        string cubeTexPath = Path.Combine(AppContext.BaseDirectory, "Assets", "texture.png");
+        _cubeDiffuseTex = TextureLoader.LoadTexture(_device, _commandList, cubeTexPath, out var cubeTexUpload);
+        _uploadBuffers.Add(cubeTexUpload);
+
+        uint instDescSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+        var diffuseSlot = _instanceDescHeap.GetCPUDescriptorHandleForHeapStart();
+        diffuseSlot.Ptr += instDescSize;
+        _device.CreateShaderResourceView(_cubeDiffuseTex,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.R8G8B8A8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Shader4ComponentMapping = ShaderComponentMapping.Default,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 }
+            }, diffuseSlot);
+
         _commandList.Close();
         _commandQueue.ExecuteCommandLists(new[] { (ID3D12CommandList)_commandList });
         WaitForGpu();
@@ -461,6 +625,19 @@ public class RenderingSystem : IDisposable
         _commandAllocators[_frameIndex].Reset();
         _commandList.Reset(_commandAllocators[_frameIndex], _geometryPso);
         _commandList.Close();
+    }
+
+    private void BuildOctree()
+    {
+        if (_sceneObjects.Count == 0) return;
+
+        var bounds = _sceneObjects[0].WorldBounds;
+        foreach (var obj in _sceneObjects)
+            bounds = bounds.Union(obj.WorldBounds);
+
+        _octree = new Octree(bounds);
+        for (int i = 0; i < _sceneObjects.Count; i++)
+            _octree.Insert(i, _sceneObjects[i].WorldBounds);
     }
 
     private void SetupLights()
@@ -506,9 +683,12 @@ public class RenderingSystem : IDisposable
         }
         catch (Exception ex)
         {
-            System.Windows.Forms.MessageBox.Show(ex.ToString(), "Render Error");
+            MessageBoxW(IntPtr.Zero, ex.ToString(), "Render Error", 0x10 /* MB_ICONERROR */);
         }
     }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     private void MoveToNextFrame()
     {
@@ -562,13 +742,14 @@ public class RenderingSystem : IDisposable
         var view = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
         var proj = Matrix4x4.CreatePerspectiveFieldOfView(
             MathF.PI / 4f, (float)_width / _height, 0.01f, 500f);
+        var viewProj = view * proj;
 
         var world = Matrix4x4.Identity;
         Matrix4x4.Invert(world, out var worldInv);
 
         unsafe
         {
-            _geometryCbData->WorldViewProj = Matrix4x4.Transpose(world * view * proj);
+            _geometryCbData->WorldViewProj = Matrix4x4.Transpose(world * viewProj);
             _geometryCbData->World = Matrix4x4.Transpose(world);
             _geometryCbData->WorldInvTranspose = Matrix4x4.Transpose(worldInv);
             _geometryCbData->CameraPos = CameraPos;
@@ -584,20 +765,46 @@ public class RenderingSystem : IDisposable
         _commandList.SetGraphicsRootDescriptorTable(0,
             _geometryDescHeap.GetGPUDescriptorHandleForHeapStart());
 
-        var globalTexHandle = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
-        globalTexHandle.Ptr += _globalTexHeapOffset * _geometryDescSize;
-        _commandList.SetGraphicsRootDescriptorTable(2, globalTexHandle);
+        var globalDispHandle = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+        globalDispHandle.Ptr += _globalTexHeapOffset * _geometryDescSize;
+
+        var globalNormHandle = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+        globalNormHandle.Ptr += (_globalTexHeapOffset + 1) * _geometryDescSize;
 
         foreach (var mesh in _model.Meshes)
         {
             var mat = _model.Materials[mesh.MaterialIndex];
 
             if (!string.IsNullOrEmpty(mat.DiffuseTexturePath) &&
-                _textureIndices.TryGetValue(mat.DiffuseTexturePath, out uint texSlot))
+                _textureIndices.TryGetValue(mat.DiffuseTexturePath, out uint diffSlot))
             {
-                var gpuHandle = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
-                gpuHandle.Ptr += (1 + texSlot) * _geometryDescSize;
-                _commandList.SetGraphicsRootDescriptorTable(1, gpuHandle);
+                var h = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+                h.Ptr += (1 + diffSlot) * _geometryDescSize;
+                _commandList.SetGraphicsRootDescriptorTable(1, h);
+            }
+
+            if (mat.HasDisplacement &&
+                _textureIndices.TryGetValue(mat.DisplacementTexturePath, out uint dispSlot))
+            {
+                var h = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+                h.Ptr += (1 + dispSlot) * _geometryDescSize;
+                _commandList.SetGraphicsRootDescriptorTable(2, h);
+            }
+            else
+            {
+                _commandList.SetGraphicsRootDescriptorTable(2, globalDispHandle);
+            }
+
+            if (mat.HasNormalMap &&
+                _textureIndices.TryGetValue(mat.NormalTexturePath, out uint normSlot))
+            {
+                var h = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+                h.Ptr += (1 + normSlot) * _geometryDescSize;
+                _commandList.SetGraphicsRootDescriptorTable(3, h);
+            }
+            else
+            {
+                _commandList.SetGraphicsRootDescriptorTable(3, globalNormHandle);
             }
 
             _commandList.IASetVertexBuffers(0, mesh.VertexBufferView);
@@ -605,11 +812,81 @@ public class RenderingSystem : IDisposable
             _commandList.DrawIndexedInstanced((uint)mesh.IndexCount, 1, 0, 0, 0);
         }
 
+        DrawSceneObjects(viewProj);
+
         for (int i = 0; i < GBuffer.Count; i++)
             _commandList.ResourceBarrier(new ResourceBarrier(
                 new ResourceTransitionBarrier(_gBuffer.RenderTargets[i],
                     ResourceStates.RenderTarget,
                     ResourceStates.PixelShaderResource)));
+    }
+
+    private void DrawSceneObjects(Matrix4x4 viewProj)
+    {
+        if (_sceneObjects.Count == 0) return;
+
+        var frustum = Frustum.FromViewProjection(viewProj);
+
+        _cullResults.Clear();
+        if (!FrustumCullingEnabled)
+        {
+            for (int i = 0; i < _sceneObjects.Count; i++)
+                _cullResults.Add(i);
+        }
+        else if (OctreeAccelerationEnabled)
+        {
+            _octree.Query(frustum, _cullResults);
+        }
+        else
+        {
+            for (int i = 0; i < _sceneObjects.Count; i++)
+                if (frustum.Intersects(_sceneObjects[i].WorldBounds))
+                    _cullResults.Add(i);
+        }
+
+        VisibleInstanceCount = _cullResults.Count;
+        if (VisibleInstanceCount == 0)
+            return;
+
+        unsafe
+        {
+            *_instanceViewProjCbData = Matrix4x4.Transpose(viewProj);
+
+            int count = Math.Min(VisibleInstanceCount, MaxInstances);
+            for (int i = 0; i < count; i++)
+            {
+                var obj = _sceneObjects[_cullResults[i]];
+                var world = obj.World;
+                Matrix4x4.Invert(world, out var worldInv);
+
+                _instanceDataPtr[i] = new InstanceGpuData
+                {
+                    World = world,
+                    WorldInvTranspose = Matrix4x4.Transpose(worldInv),
+                };
+            }
+            VisibleInstanceCount = count;
+        }
+
+        _commandList.SetPipelineState(_instancePso);
+        _commandList.SetGraphicsRootSignature(_instanceRootSig);
+        _commandList.SetDescriptorHeaps(_instanceDescHeap);
+
+        var heapStart = _instanceDescHeap.GetGPUDescriptorHandleForHeapStart();
+        uint descSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+
+        _commandList.SetGraphicsRootDescriptorTable(0, heapStart);
+        var diffuseHandle = heapStart; diffuseHandle.Ptr += descSize;
+        _commandList.SetGraphicsRootDescriptorTable(1, diffuseHandle);
+        var instHandle = heapStart; instHandle.Ptr += 2 * descSize;
+        _commandList.SetGraphicsRootDescriptorTable(2, instHandle);
+
+        _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+        _commandList.IASetVertexBuffers(0, _cubeMesh.VertexBufferView);
+        _commandList.IASetIndexBuffer(_cubeMesh.IndexBufferView);
+        _commandList.DrawIndexedInstanced(
+            (uint)_cubeMesh.IndexCount, (uint)VisibleInstanceCount, 0, 0, 0);
     }
 
     private void LightingPass()
@@ -701,6 +978,8 @@ public class RenderingSystem : IDisposable
         {
             _geometryCb?.Unmap(0, null);
             _lightingCb?.Unmap(0, null);
+            _instanceViewProjCb?.Unmap(0, null);
+            _instanceDataBuffer?.Unmap(0, null);
         }
         _model?.Dispose();
         _globalDisplacementTex?.Dispose();
@@ -714,6 +993,13 @@ public class RenderingSystem : IDisposable
         _lightingCb?.Dispose();
         _geometryDescHeap?.Dispose();
         _lightingDescHeap?.Dispose();
+        _cubeMesh?.Dispose();
+        _cubeDiffuseTex?.Dispose();
+        _instancePso?.Dispose();
+        _instanceRootSig?.Dispose();
+        _instanceViewProjCb?.Dispose();
+        _instanceDataBuffer?.Dispose();
+        _instanceDescHeap?.Dispose();
         _fence?.Dispose();
         _fenceEvent?.Dispose();
         _depthBuffer?.Dispose();

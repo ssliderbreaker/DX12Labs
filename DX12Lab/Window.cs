@@ -71,6 +71,11 @@ public class Window
     [DllImport("user32.dll")]
     private static extern IntPtr SetFocus(IntPtr hWnd);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
+    public void SetTitle(string title) => SetWindowTextW(Hwnd, title);
+
     public void SetUpdateCallback(Action callback)
     {
         _updateCallback = callback;
