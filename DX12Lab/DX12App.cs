@@ -24,11 +24,14 @@ public class DX12App : AppBase
         _renderer.CameraPos = _camera.Position;
         _renderer.CameraTarget = _camera.Target;
 
-        if (Input.IsKeyPressed(0x70)) 
+        if (Input.IsKeyPressed(0x70))
             _renderer.FrustumCullingEnabled = !_renderer.FrustumCullingEnabled;
 
-        if (Input.IsKeyPressed(0x71)) 
+        if (Input.IsKeyPressed(0x71))
             _renderer.OctreeAccelerationEnabled = !_renderer.OctreeAccelerationEnabled;
+
+        if (Input.IsKeyPressed(0x72))
+            _renderer.ShadowsEnabled = !_renderer.ShadowsEnabled;
 
         _titleTimer += deltaTime;
         if (_titleTimer > 0.2)
@@ -37,8 +40,9 @@ public class DX12App : AppBase
             string mode = !_renderer.FrustumCullingEnabled ? "Culling: OFF"
                 : _renderer.OctreeAccelerationEnabled ? "Culling: Frustum+Octree"
                 : "Culling: Frustum (brute-force)";
+            string shadows = _renderer.ShadowsEnabled ? "Shadows: ON" : "Shadows: OFF";
             Window.SetTitle(
-                $"DX12 Lab | {mode} | Visible {_renderer.VisibleInstanceCount}/{_renderer.TotalInstanceCount}");
+                $"DX12 Lab | {mode} | {shadows} | Visible {_renderer.VisibleInstanceCount}/{_renderer.TotalInstanceCount}");
         }
     }
 

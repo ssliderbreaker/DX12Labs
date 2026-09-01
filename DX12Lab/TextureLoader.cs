@@ -1,6 +1,5 @@
 ﻿using StbImageSharp;
 using System;
-using System.Runtime.InteropServices;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 

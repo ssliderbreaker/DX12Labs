@@ -5,6 +5,7 @@
 		<Nullable>enable</Nullable>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Platforms>x64</Platforms>
+		<UseWindowsForms>true</UseWindowsForms>
 	</PropertyGroup>
 	<ItemGroup>
 		<None Remove="Shaders\shaders.hlsl" />
@@ -16,6 +17,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
 		<PackageReference Include="Vortice.Direct3D12" Version="3.*" />
 		<PackageReference Include="Vortice.D3DCompiler" Version="3.*" />
 		<PackageReference Include="StbImageSharp" Version="2.*" />
@@ -31,9 +33,6 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="Assets\normal.png">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="Assets\texture.png">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="Assets\Sponza\00_skap.JPG">
@@ -105,10 +104,19 @@
 		<None Update="Assets\Sponza\x01_st.JPG">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="Assets\texture.png">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<None Update="Shaders\geometry_pass.hlsl">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="Shaders\lighting_pass.hlsl">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Shaders\shadow_depth_static.hlsl">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Shaders\shadow_depth_instanced.hlsl">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<None Update="Shaders\instance_pass.hlsl">

@@ -49,6 +49,14 @@ public struct LightingConstantBuffer
     public LightArray16 Lights;
     public int LightCount;
     public Vector3 Padding;
+    public Matrix4x4 CascadeViewProj0;
+    public Matrix4x4 CascadeViewProj1;
+    public Matrix4x4 CascadeViewProj2;
+    public Matrix4x4 CascadeViewProj3;
+    public Vector4 CascadeSplits;
+    public float ShadowMapSize;
+    public int ShadowsEnabled;
+    public Vector2 Padding3;
 }
 
 public class RenderingSystem : IDisposable
@@ -134,6 +142,16 @@ public class RenderingSystem : IDisposable
 
     private readonly List<int> _cullResults = new();
 
+    private CascadedShadowMap _csm;
+
+    private ID3D12RootSignature _shadowStaticRootSig;
+    private ID3D12PipelineState _shadowStaticPso;
+
+    private ID3D12RootSignature _shadowInstancedRootSig;
+    private ID3D12PipelineState _shadowInstancedPso;
+
+    public bool ShadowsEnabled { get; set; } = true;
+
     public RenderingSystem(IntPtr hwnd, int width, int height)
     {
         _width = width;
@@ -190,6 +208,7 @@ public class RenderingSystem : IDisposable
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
 
         CreateGeometryPass();
+        CreateShadowPass();
         CreateLightingPass();
 
         for (int i = 0; i < FrameCount; i++)
@@ -329,13 +348,81 @@ public class RenderingSystem : IDisposable
 
     }
 
+    private void CreateShadowPass()
+    {
+        _csm = new CascadedShadowMap(_device);
+
+        var staticParams = new RootParameter1[]
+        {
+            new RootParameter1(new RootConstants(0, 0, 16), ShaderVisibility.Vertex),
+        };
+        _shadowStaticRootSig = _device.CreateRootSignature(
+            new RootSignatureDescription1(RootSignatureFlags.AllowInputAssemblerInputLayout, staticParams));
+
+        string staticShaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "shadow_depth_static.hlsl");
+        var staticVs = CompileShader(staticShaderPath, "VSMain", "vs_5_0");
+
+        _shadowStaticPso = _device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+        {
+            RootSignature = _shadowStaticRootSig,
+            VertexShader = staticVs,
+            InputLayout = new InputLayoutDescription(new[]
+            {
+                new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,  0, 0),
+                new InputElementDescription("NORMAL",   0, Format.R32G32B32_Float, 12, 0),
+                new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,    24, 0),
+            }),
+            SampleMask = uint.MaxValue,
+            PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
+            RasterizerState = new RasterizerDescription(CullMode.Back, FillMode.Solid),
+            BlendState = BlendDescription.Opaque,
+            DepthStencilState = DepthStencilDescription.Default,
+            RenderTargetFormats = Array.Empty<Format>(),
+            DepthStencilFormat = Format.D32_Float,
+            SampleDescription = new SampleDescription(1, 0),
+        });
+
+        var instParams = new RootParameter1[]
+        {
+            new RootParameter1(new RootConstants(0, 0, 16), ShaderVisibility.Vertex),
+            new RootParameter1(
+                new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ShaderResourceView, 1, 0)),
+                ShaderVisibility.Vertex),
+        };
+        _shadowInstancedRootSig = _device.CreateRootSignature(
+            new RootSignatureDescription1(RootSignatureFlags.AllowInputAssemblerInputLayout, instParams));
+
+        string instShaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "shadow_depth_instanced.hlsl");
+        var instVs = CompileShader(instShaderPath, "VSMain", "vs_5_0");
+
+        _shadowInstancedPso = _device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+        {
+            RootSignature = _shadowInstancedRootSig,
+            VertexShader = instVs,
+            InputLayout = new InputLayoutDescription(new[]
+            {
+                new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,  0, 0),
+                new InputElementDescription("NORMAL",   0, Format.R32G32B32_Float, 12, 0),
+                new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,    24, 0),
+            }),
+            SampleMask = uint.MaxValue,
+            PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
+            RasterizerState = new RasterizerDescription(CullMode.Back, FillMode.Solid),
+            BlendState = BlendDescription.Opaque,
+            DepthStencilState = DepthStencilDescription.Default,
+            RenderTargetFormats = Array.Empty<Format>(),
+            DepthStencilFormat = Format.D32_Float,
+            SampleDescription = new SampleDescription(1, 0),
+        });
+    }
+
     private void CreateLightingPass()
     {
         var rootParams = new RootParameter1[]
         {
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
-                    DescriptorRangeType.ShaderResourceView, 3, 0)),
+                    DescriptorRangeType.ShaderResourceView, 4, 0)),
                 ShaderVisibility.Pixel),
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
@@ -353,10 +440,21 @@ public class RenderingSystem : IDisposable
             MaxLOD = float.MaxValue,
         };
 
+        var shadowSampler = new StaticSamplerDescription(ShaderVisibility.Pixel, 1, 0)
+        {
+            Filter = Filter.ComparisonMinMagMipLinear,
+            AddressU = TextureAddressMode.Border,
+            AddressV = TextureAddressMode.Border,
+            AddressW = TextureAddressMode.Border,
+            ComparisonFunction = ComparisonFunction.LessEqual,
+            BorderColor = StaticBorderColor.OpaqueWhite,
+            MaxLOD = float.MaxValue,
+        };
+
         _lightingRootSig = _device.CreateRootSignature(
             new RootSignatureDescription1(
                 RootSignatureFlags.AllowInputAssemblerInputLayout,
-                rootParams, new[] { sampler }));
+                rootParams, new[] { sampler, shadowSampler }));
 
         string shaderPath = Path.Combine(AppContext.BaseDirectory, "Shaders", "lighting_pass.hlsl");
         var vs = CompileShader(shaderPath, "VSMain", "vs_5_0");
@@ -392,14 +490,19 @@ public class RenderingSystem : IDisposable
 
         _lightingDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-            4, DescriptorHeapFlags.ShaderVisible));
+            GBuffer.Count + 2, DescriptorHeapFlags.ShaderVisible));
 
         RefreshLightingGBufferDescriptors();
 
         uint descSize = _device.GetDescriptorHandleIncrementSize(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+
+        var shadowSrvHandle = _lightingDescHeap.GetCPUDescriptorHandleForHeapStart();
+        shadowSrvHandle.Ptr += (uint)GBuffer.Count * descSize;
+        _csm.CreateSrv(shadowSrvHandle);
+
         var cbvHandle = _lightingDescHeap.GetCPUDescriptorHandleForHeapStart();
-        cbvHandle.Ptr += (uint)GBuffer.Count * descSize;
+        cbvHandle.Ptr += (uint)(GBuffer.Count + 1) * descSize;
         _device.CreateConstantBufferView(
             new ConstantBufferViewDescription(_lightingCb.GPUVirtualAddress, (uint)cbSize),
             cbvHandle);
@@ -673,6 +776,7 @@ public class RenderingSystem : IDisposable
             _commandList.Reset(_commandAllocators[_frameIndex], _geometryPso);
 
             GeometryPass();
+            ShadowPass();
             LightingPass();
             _commandList.Close();
 
@@ -889,6 +993,71 @@ public class RenderingSystem : IDisposable
             (uint)_cubeMesh.IndexCount, (uint)VisibleInstanceCount, 0, 0, 0);
     }
 
+    private void ShadowPass()
+    {
+        if (Lights.Count == 0) return;
+
+        var sun = Lights[0];
+        Vector3 lightDir = Vector3.Normalize(new Vector3(sun.Direction.X, sun.Direction.Y, sun.Direction.Z));
+
+        var view = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
+        float aspect = (float)_width / _height;
+        float fovY = MathF.PI / 4f;
+
+        _csm.ComputeCascades(lightDir, view, fovY, aspect, 0.1f, 60f);
+
+        _commandList.ResourceBarrier(new ResourceBarrier(
+            new ResourceTransitionBarrier(_csm.ShadowTexture,
+                ResourceStates.PixelShaderResource, ResourceStates.DepthWrite)));
+
+        _commandList.RSSetViewport(new Viewport(0, 0, CascadedShadowMap.ShadowMapSize, CascadedShadowMap.ShadowMapSize));
+        _commandList.RSSetScissorRect(new Vortice.RawRect(0, 0, CascadedShadowMap.ShadowMapSize, CascadedShadowMap.ShadowMapSize));
+        _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+        uint instDescSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+        var instHeapStart = _instanceDescHeap.GetGPUDescriptorHandleForHeapStart();
+        var instHandle = instHeapStart; instHandle.Ptr += 2 * instDescSize;
+
+        for (int c = 0; c < CascadedShadowMap.CascadeCount; c++)
+        {
+            var dsv = _csm.GetDsv(c);
+            _commandList.ClearDepthStencilView(dsv, ClearFlags.Depth, 1.0f, 0);
+            _commandList.OMSetRenderTargets(Array.Empty<CpuDescriptorHandle>(), dsv);
+
+            var lightViewProjT = Matrix4x4.Transpose(_csm.CascadeViewProj[c]);
+
+            _commandList.SetPipelineState(_shadowStaticPso);
+            _commandList.SetGraphicsRootSignature(_shadowStaticRootSig);
+            unsafe { _commandList.SetGraphicsRoot32BitConstants(0, 16, &lightViewProjT, 0); }
+
+            foreach (var mesh in _model.Meshes)
+            {
+                _commandList.IASetVertexBuffers(0, mesh.VertexBufferView);
+                _commandList.IASetIndexBuffer(mesh.IndexBufferView);
+                _commandList.DrawIndexedInstanced((uint)mesh.IndexCount, 1, 0, 0, 0);
+            }
+
+            if (VisibleInstanceCount > 0)
+            {
+                _commandList.SetPipelineState(_shadowInstancedPso);
+                _commandList.SetGraphicsRootSignature(_shadowInstancedRootSig);
+                unsafe { _commandList.SetGraphicsRoot32BitConstants(0, 16, &lightViewProjT, 0); }
+
+                _commandList.SetDescriptorHeaps(_instanceDescHeap);
+                _commandList.SetGraphicsRootDescriptorTable(1, instHandle);
+
+                _commandList.IASetVertexBuffers(0, _cubeMesh.VertexBufferView);
+                _commandList.IASetIndexBuffer(_cubeMesh.IndexBufferView);
+                _commandList.DrawIndexedInstanced((uint)_cubeMesh.IndexCount, (uint)VisibleInstanceCount, 0, 0, 0);
+            }
+        }
+
+        _commandList.ResourceBarrier(new ResourceBarrier(
+            new ResourceTransitionBarrier(_csm.ShadowTexture,
+                ResourceStates.DepthWrite, ResourceStates.PixelShaderResource)));
+    }
+
     private void LightingPass()
     {
         var rtvHandle = _rtvHeap.GetCPUDescriptorHandleForHeapStart();
@@ -909,6 +1078,15 @@ public class RenderingSystem : IDisposable
             _lightingCbData->LightCount = Math.Min(Lights.Count, 16);
             for (int i = 0; i < _lightingCbData->LightCount; i++)
                 _lightingCbData->Lights[i] = Lights[i];
+
+            _lightingCbData->CascadeViewProj0 = Matrix4x4.Transpose(_csm.CascadeViewProj[0]);
+            _lightingCbData->CascadeViewProj1 = Matrix4x4.Transpose(_csm.CascadeViewProj[1]);
+            _lightingCbData->CascadeViewProj2 = Matrix4x4.Transpose(_csm.CascadeViewProj[2]);
+            _lightingCbData->CascadeViewProj3 = Matrix4x4.Transpose(_csm.CascadeViewProj[3]);
+            _lightingCbData->CascadeSplits = new Vector4(
+                _csm.CascadeSplits[0], _csm.CascadeSplits[1], _csm.CascadeSplits[2], _csm.CascadeSplits[3]);
+            _lightingCbData->ShadowMapSize = CascadedShadowMap.ShadowMapSize;
+            _lightingCbData->ShadowsEnabled = ShadowsEnabled ? 1 : 0;
         }
 
         uint descSize = _device.GetDescriptorHandleIncrementSize(
@@ -920,7 +1098,7 @@ public class RenderingSystem : IDisposable
             _lightingDescHeap.GetGPUDescriptorHandleForHeapStart());
 
         var cbvGpu = _lightingDescHeap.GetGPUDescriptorHandleForHeapStart();
-        cbvGpu.Ptr += (uint)GBuffer.Count * descSize;
+        cbvGpu.Ptr += (uint)(GBuffer.Count + 1) * descSize;
         _commandList.SetGraphicsRootDescriptorTable(1, cbvGpu);
 
         _commandList.RSSetViewport(new Viewport(0, 0, _width, _height));
@@ -1000,6 +1178,11 @@ public class RenderingSystem : IDisposable
         _instanceViewProjCb?.Dispose();
         _instanceDataBuffer?.Dispose();
         _instanceDescHeap?.Dispose();
+        _csm?.Dispose();
+        _shadowStaticPso?.Dispose();
+        _shadowStaticRootSig?.Dispose();
+        _shadowInstancedPso?.Dispose();
+        _shadowInstancedRootSig?.Dispose();
         _fence?.Dispose();
         _fenceEvent?.Dispose();
         _depthBuffer?.Dispose();
