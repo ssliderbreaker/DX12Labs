@@ -63,6 +63,7 @@ public class RenderingSystem : IDisposable
 {
     private const int FrameCount = 2;
     private const int MaxInstances = 4000;
+    private const int MaxParticleCount = 20000;
 
     private ID3D12Device _device;
     private IDXGISwapChain3 _swapChain;
@@ -152,6 +153,10 @@ public class RenderingSystem : IDisposable
 
     public bool ShadowsEnabled { get; set; } = true;
 
+    private ParticleSystem _particles;
+    private float _totalTime;
+    private readonly Vector3 _particleEmitterPos = new Vector3(0f, 20f, 0f);
+
     public RenderingSystem(IntPtr hwnd, int width, int height)
     {
         _width = width;
@@ -217,6 +222,8 @@ public class RenderingSystem : IDisposable
             CommandListType.Direct, _commandAllocators[_frameIndex], _geometryPso);
 
         CreateInstancePass();
+
+        _particles = new ParticleSystem(_device, _commandList, MaxParticleCount);
 
         LoadScene();
         SetupLights();
@@ -777,6 +784,10 @@ public class RenderingSystem : IDisposable
 
             GeometryPass();
             ShadowPass();
+
+            _totalTime += (float)deltaTime;
+            _particles.Update(_commandList, (float)deltaTime, _particleEmitterPos, _totalTime);
+
             LightingPass();
             _commandList.Close();
 
@@ -1106,6 +1117,16 @@ public class RenderingSystem : IDisposable
         _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
         _commandList.DrawInstanced(3, 1, 0, 0);
 
+        var particleDsv = _dsvHeap.GetCPUDescriptorHandleForHeapStart();
+        _commandList.OMSetRenderTargets(rtvHandle, particleDsv);
+
+        var particleView = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
+        var particleProj = Matrix4x4.CreatePerspectiveFieldOfView(
+            MathF.PI / 4f, (float)_width / _height, 0.01f, 500f);
+        var particleViewProj = particleView * particleProj;
+
+        _particles.Render(_commandList, particleViewProj, CameraPos, CameraTarget);
+
         _commandList.ResourceBarrier(new ResourceBarrier(
             new ResourceTransitionBarrier(_renderTargets[_frameIndex],
                 ResourceStates.RenderTarget, ResourceStates.Present)));
@@ -1159,6 +1180,7 @@ public class RenderingSystem : IDisposable
             _instanceViewProjCb?.Unmap(0, null);
             _instanceDataBuffer?.Unmap(0, null);
         }
+        _particles?.Dispose();
         _model?.Dispose();
         _globalDisplacementTex?.Dispose();
         _globalNormalTex?.Dispose();
