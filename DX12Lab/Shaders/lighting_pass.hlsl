@@ -23,7 +23,8 @@ cbuffer LightingBuffer : register(b0)
     float4 CascadeSplits;
     float ShadowMapSize;
     int ShadowsEnabled;
-    float2 Padding3;
+    int GBufferViewMode; 
+    float Padding3;
 };
 
 struct VertexOut
@@ -143,6 +144,10 @@ float4 PSMain(VertexOut pin) : SV_TARGET
     float3 worldPos = gPosition.Sample(gSampler, pin.TexCoord).xyz;
     float3 normal = normalize(gNormal.Sample(gSampler, pin.TexCoord).xyz);
     float4 albedo = gAlbedo.Sample(gSampler, pin.TexCoord);
+    
+    if (GBufferViewMode == 1) return albedo;
+    if (GBufferViewMode == 2) return float4(normal * 0.5f + 0.5f, 1.0f);
+    if (GBufferViewMode == 3) return float4(frac(worldPos * 0.05f), 1.0f);
 
     float3 viewDir = normalize(CameraPos.xyz - worldPos);
 
@@ -162,6 +167,6 @@ float4 PSMain(VertexOut pin) : SV_TARGET
         float shadowFactor = (i == 0 && light0IsSun) ? shadow : 1.0f;
         lighting += CalcLight(Lights[i], worldPos, normal, viewDir, albedo) * shadowFactor;
     }
-
-    return saturate(lighting);
+    
+    return lighting;
 }

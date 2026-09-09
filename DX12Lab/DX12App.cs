@@ -4,7 +4,9 @@ public class DX12App : AppBase
 {
     private RenderingSystem _renderer;
     private Camera _camera = new();
+    private DebugMenu _menu;
     private double _titleTimer;
+    private int _frameCount;
 
     public DX12App() : base("DX12 Lab", 1280, 720) { }
 
@@ -15,6 +17,8 @@ public class DX12App : AppBase
         _renderer.DisplacementScale = 0.02f;
         _renderer.TessMax = 16f;
 
+        _menu = new DebugMenu(Window, _renderer);
+
         Window.OnResize += (width, height) => _renderer.Resize(width, height);
     }
 
@@ -24,25 +28,18 @@ public class DX12App : AppBase
         _renderer.CameraPos = _camera.Position;
         _renderer.CameraTarget = _camera.Target;
 
-        if (Input.IsKeyPressed(0x70))
-            _renderer.FrustumCullingEnabled = !_renderer.FrustumCullingEnabled;
-
-        if (Input.IsKeyPressed(0x71))
-            _renderer.OctreeAccelerationEnabled = !_renderer.OctreeAccelerationEnabled;
-
-        if (Input.IsKeyPressed(0x72))
-            _renderer.ShadowsEnabled = !_renderer.ShadowsEnabled;
-
+        _frameCount++;
         _titleTimer += deltaTime;
         if (_titleTimer > 0.2)
         {
-            _titleTimer = 0;
-            string mode = !_renderer.FrustumCullingEnabled ? "Culling: OFF"
-                : _renderer.OctreeAccelerationEnabled ? "Culling: Frustum+Octree"
-                : "Culling: Frustum (brute-force)";
-            string shadows = _renderer.ShadowsEnabled ? "Shadows: ON" : "Shadows: OFF";
+            double fps = _frameCount / _titleTimer;
+            _menu.SetFps(fps);
+
             Window.SetTitle(
-                $"DX12 Lab | {mode} | {shadows} | Visible {_renderer.VisibleInstanceCount}/{_renderer.TotalInstanceCount}");
+                $"DX12 Lab | Visible {_renderer.VisibleInstanceCount}/{_renderer.TotalInstanceCount}");
+
+            _titleTimer = 0;
+            _frameCount = 0;
         }
     }
 

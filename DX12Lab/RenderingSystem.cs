@@ -56,7 +56,8 @@ public struct LightingConstantBuffer
     public Vector4 CascadeSplits;
     public float ShadowMapSize;
     public int ShadowsEnabled;
-    public Vector2 Padding3;
+    public int GBufferViewMode;
+    public float Padding3;
 }
 
 public class RenderingSystem : IDisposable
@@ -82,6 +83,7 @@ public class RenderingSystem : IDisposable
 
     private ID3D12RootSignature _geometryRootSig;
     private ID3D12PipelineState _geometryPso;
+    private ID3D12PipelineState _geometryWireframePso;
     private ID3D12Resource _geometryCb;
     private unsafe GeometryConstantBuffer* _geometryCbData;
 
@@ -157,6 +159,15 @@ public class RenderingSystem : IDisposable
     private float _totalTime;
     private readonly Vector3 _particleEmitterPos = new Vector3(0f, 20f, 0f);
 
+    private PostProcess _postProcess;
+    public bool ToneMappingEnabled { get; set; } = true;
+    public bool VignetteEnabled { get; set; } = true;
+    public float Exposure { get; set; } = 1.0f;
+    public bool ParticlesEnabled { get; set; } = true;
+    public float CascadeLambda { get; set; } = 0.65f;
+    public int GBufferViewMode { get; set; } = 0; 
+    public bool WireframeEnabled { get; set; } = false;
+
     public RenderingSystem(IntPtr hwnd, int width, int height)
     {
         _width = width;
@@ -230,6 +241,8 @@ public class RenderingSystem : IDisposable
 
         _sceneObjects = SceneGenerator.Generate(MaxInstances);
         BuildOctree();
+
+        _postProcess = new PostProcess(_device, _width, _height);
     }
 
     private void CreateRenderTargetViews()
@@ -334,6 +347,30 @@ public class RenderingSystem : IDisposable
                 SampleMask = uint.MaxValue,
                 PrimitiveTopologyType = PrimitiveTopologyType.Patch,
                 RasterizerState = new RasterizerDescription(CullMode.None, FillMode.Solid),
+                BlendState = BlendDescription.Opaque,
+                DepthStencilState = DepthStencilDescription.Default,
+                RenderTargetFormats = GBuffer.Formats,
+                DepthStencilFormat = Format.D32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+            });
+
+        _geometryWireframePso = _device.CreateGraphicsPipelineState(
+            new GraphicsPipelineStateDescription
+            {
+                RootSignature = _geometryRootSig,
+                VertexShader = vs,
+                PixelShader = ps,
+                HullShader = hs,
+                DomainShader = ds,
+                InputLayout = new InputLayoutDescription(new[]
+                {
+                    new InputElementDescription("POSITION", 0, Format.R32G32B32_Float,  0, 0),
+                    new InputElementDescription("NORMAL",   0, Format.R32G32B32_Float, 12, 0),
+                    new InputElementDescription("TEXCOORD", 0, Format.R32G32_Float,    24, 0),
+                }),
+                SampleMask = uint.MaxValue,
+                PrimitiveTopologyType = PrimitiveTopologyType.Patch,
+                RasterizerState = new RasterizerDescription(CullMode.None, FillMode.Wireframe),
                 BlendState = BlendDescription.Opaque,
                 DepthStencilState = DepthStencilDescription.Default,
                 RenderTargetFormats = GBuffer.Formats,
@@ -786,15 +823,17 @@ public class RenderingSystem : IDisposable
             ShadowPass();
 
             _totalTime += (float)deltaTime;
-            _particles.Update(_commandList, (float)deltaTime, _particleEmitterPos, _totalTime);
+            if (ParticlesEnabled)
+                _particles.Update(_commandList, (float)deltaTime, _particleEmitterPos, _totalTime);
 
             LightingPass();
+            PostProcessPass();
             _commandList.Close();
 
             _commandQueue.ExecuteCommandLists(new[] { (ID3D12CommandList)_commandList });
             _swapChain.Present(1, PresentFlags.None);
 
-            MoveToNextFrame();
+            WaitForGpu();
         }
         catch (Exception ex)
         {
@@ -849,7 +888,7 @@ public class RenderingSystem : IDisposable
         }
         _commandList.OMSetRenderTargets(rtvHandles, dsvHandle);
         _commandList.SetGraphicsRootSignature(_geometryRootSig);
-        _commandList.SetPipelineState(_geometryPso);
+        _commandList.SetPipelineState(WireframeEnabled ? _geometryWireframePso : _geometryPso);
         _commandList.RSSetViewport(new Viewport(0, 0, _width, _height));
         _commandList.RSSetScissorRect(new Vortice.RawRect(0, 0, _width, _height));
         _commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.PatchListWith3ControlPoints);
@@ -1015,7 +1054,7 @@ public class RenderingSystem : IDisposable
         float aspect = (float)_width / _height;
         float fovY = MathF.PI / 4f;
 
-        _csm.ComputeCascades(lightDir, view, fovY, aspect, 0.1f, 60f);
+        _csm.ComputeCascades(lightDir, view, fovY, aspect, 0.1f, 60f, CascadeLambda);
 
         _commandList.ResourceBarrier(new ResourceBarrier(
             new ResourceTransitionBarrier(_csm.ShadowTexture,
@@ -1071,12 +1110,9 @@ public class RenderingSystem : IDisposable
 
     private void LightingPass()
     {
-        var rtvHandle = _rtvHeap.GetCPUDescriptorHandleForHeapStart();
-        rtvHandle.Ptr += _frameIndex * _rtvDescriptorSize;
+        var rtvHandle = _postProcess.SceneColorRtv;
 
-        _commandList.ResourceBarrier(new ResourceBarrier(
-            new ResourceTransitionBarrier(_renderTargets[_frameIndex],
-                ResourceStates.Present, ResourceStates.RenderTarget)));
+        _postProcess.BeginScene(_commandList);
 
         _commandList.ClearRenderTargetView(rtvHandle, new Color4(0, 0, 0, 1));
         _commandList.OMSetRenderTargets(rtvHandle, null);
@@ -1098,6 +1134,7 @@ public class RenderingSystem : IDisposable
                 _csm.CascadeSplits[0], _csm.CascadeSplits[1], _csm.CascadeSplits[2], _csm.CascadeSplits[3]);
             _lightingCbData->ShadowMapSize = CascadedShadowMap.ShadowMapSize;
             _lightingCbData->ShadowsEnabled = ShadowsEnabled ? 1 : 0;
+            _lightingCbData->GBufferViewMode = GBufferViewMode;
         }
 
         uint descSize = _device.GetDescriptorHandleIncrementSize(
@@ -1120,12 +1157,32 @@ public class RenderingSystem : IDisposable
         var particleDsv = _dsvHeap.GetCPUDescriptorHandleForHeapStart();
         _commandList.OMSetRenderTargets(rtvHandle, particleDsv);
 
-        var particleView = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
-        var particleProj = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 4f, (float)_width / _height, 0.01f, 500f);
-        var particleViewProj = particleView * particleProj;
+        if (ParticlesEnabled)
+        {
+            var particleView = Matrix4x4.CreateLookAt(CameraPos, CameraTarget, Vector3.UnitY);
+            var particleProj = Matrix4x4.CreatePerspectiveFieldOfView(
+                MathF.PI / 4f, (float)_width / _height, 0.01f, 500f);
+            var particleViewProj = particleView * particleProj;
 
-        _particles.Render(_commandList, particleViewProj, CameraPos, CameraTarget);
+            _particles.Render(_commandList, particleViewProj, CameraPos, CameraTarget);
+        }
+
+        _postProcess.EndScene(_commandList);
+    }
+
+    private void PostProcessPass()
+    {
+        var rtvHandle = _rtvHeap.GetCPUDescriptorHandleForHeapStart();
+        rtvHandle.Ptr += _frameIndex * _rtvDescriptorSize;
+
+        _commandList.ResourceBarrier(new ResourceBarrier(
+            new ResourceTransitionBarrier(_renderTargets[_frameIndex],
+                ResourceStates.Present, ResourceStates.RenderTarget)));
+
+        _postProcess.ToneMappingEnabled = ToneMappingEnabled;
+        _postProcess.VignetteEnabled = VignetteEnabled;
+        _postProcess.Exposure = Exposure;
+        _postProcess.Render(_commandList, rtvHandle, _width, _height);
 
         _commandList.ResourceBarrier(new ResourceBarrier(
             new ResourceTransitionBarrier(_renderTargets[_frameIndex],
@@ -1166,6 +1223,8 @@ public class RenderingSystem : IDisposable
         _gBuffer = new GBuffer(_device, _width, _height);
         RefreshLightingGBufferDescriptors();
 
+        _postProcess.Resize(_width, _height);
+
         for (int i = 0; i < FrameCount; i++)
             _fenceValues[i] = _fenceValues[_frameIndex];
     }
@@ -1181,11 +1240,13 @@ public class RenderingSystem : IDisposable
             _instanceDataBuffer?.Unmap(0, null);
         }
         _particles?.Dispose();
+        _postProcess?.Dispose();
         _model?.Dispose();
         _globalDisplacementTex?.Dispose();
         _globalNormalTex?.Dispose();
         _gBuffer?.Dispose();
         _geometryPso?.Dispose();
+        _geometryWireframePso?.Dispose();
         _geometryRootSig?.Dispose();
         _lightingPso?.Dispose();
         _lightingRootSig?.Dispose();

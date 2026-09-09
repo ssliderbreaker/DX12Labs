@@ -34,9 +34,9 @@ public static class SceneGenerator
         for (int i = 0; i < count; i++)
         {
             var pos = new Vector3(
-                Lerp(rnd, -13f, 13f),
+                Lerp(rnd, -30f, 30f),
                 Lerp(rnd, 0.3f, 13f),
-                Lerp(rnd, -5.5f, 5.5f));
+                Lerp(rnd, -18f, 18f));
 
             float scale = Lerp(rnd, 0.15f, 0.5f);
 
