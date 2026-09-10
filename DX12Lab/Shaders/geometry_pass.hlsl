@@ -9,6 +9,10 @@ cbuffer ConstantBuffer : register(b0)
     float TessMax;
     float TessNearDist;
     float TessFarDist;
+    float Roughness;   // NEW: material roughness [0..1]
+    float Metallic;    // NEW: material metallic  [0..1]
+    float PadGeom0;    // NEW: padding to keep 16-byte vector alignment
+    float PadGeom1;    // NEW: padding
 };
 
 Texture2D gDiffuseMap : register(t0);
@@ -155,8 +159,8 @@ PSOutput PSMain(DS_OUT pin)
 
     PSOutput output;
     output.Position = float4(pin.PosWorld, 1.0f);
-    output.Normal = float4(perturbedN, 1.0f);
-    output.Albedo = gDiffuseMap.Sample(gSampler, pin.TexCoord);
+    output.Normal = float4(perturbedN, Metallic);                       // NEW: metallic in alpha
+    output.Albedo = float4(gDiffuseMap.Sample(gSampler, pin.TexCoord).rgb, Roughness); // NEW: roughness in alpha
 
     return output;
 }

@@ -13,6 +13,12 @@ StructuredBuffer<InstanceData> gInstances : register(t1);
 Texture2D gDiffuseMap : register(t0);
 SamplerState gSampler : register(s0);
 
+// NEW: constant material response for instanced scene objects (no per-instance
+// material data exists yet). Tweak these two constants to taste, or wire them
+// up to root constants later if you want per-instance control.
+static const float InstanceRoughness = 0.6f;
+static const float InstanceMetallic = 0.0f;
+
 struct VertexIn
 {
     float3 Position : POSITION;
@@ -53,7 +59,7 @@ PSOutput PSMain(VS_OUT pin)
 {
     PSOutput output;
     output.Position = float4(pin.PosWorld, 1.0f);
-    output.Normal = float4(normalize(pin.Normal), 1.0f);
-    output.Albedo = gDiffuseMap.Sample(gSampler, pin.TexCoord);
+    output.Normal = float4(normalize(pin.Normal), InstanceMetallic); // NEW: metallic in alpha
+    output.Albedo = float4(gDiffuseMap.Sample(gSampler, pin.TexCoord).rgb, InstanceRoughness); // NEW: roughness in alpha
     return output;
 }

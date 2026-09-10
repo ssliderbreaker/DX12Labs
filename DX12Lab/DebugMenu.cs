@@ -136,6 +136,11 @@ public class DebugMenu
             pos => _renderer.Exposure = pos / 100f,
             pos => $"Exposure: {pos / 100f:0.00}");
 
+        AddSlider("IBL Intensity", x, ref y, width,
+            0, 300, (int)Math.Round(_renderer.IblIntensity * 100f),
+            pos => _renderer.IblIntensity = pos / 100f,
+            pos => $"IBL Intensity: {pos / 100f:0.00}");
+
         AddSlider("Displacement Scale", x, ref y, width,
             0, 100, (int)Math.Round(_renderer.DisplacementScale * 1000f),
             pos => _renderer.DisplacementScale = pos / 1000f,
@@ -156,9 +161,9 @@ public class DebugMenu
             pos => _renderer.CascadeLambda = pos / 100f,
             pos => $"Cascade Lambda: {pos / 100f:0.00}");
 
-        string[] gbufferModes = { "Final", "Albedo", "Normal", "Position" };
+        string[] gbufferModes = { "Final", "Albedo", "Normal", "Position", "Roughness", "Metallic" };
         AddSlider("G-Buffer View", x, ref y, width,
-            0, 3, _renderer.GBufferViewMode,
+            0, 5, _renderer.GBufferViewMode,
             pos => _renderer.GBufferViewMode = pos,
             pos => $"G-Buffer View: {gbufferModes[Math.Clamp(pos, 0, gbufferModes.Length - 1)]}");
 
@@ -320,7 +325,7 @@ public class DebugMenu
     {
         int id = _nextControlId++;
         IntPtr hwnd = CreateWindowExW(0, "BUTTON", text,
-            WS_CHILD | WS_VISIBLE, 
+            WS_CHILD | WS_VISIBLE,
             x, y, width, height,
             _panel, (IntPtr)id, GetModuleHandleW(null), IntPtr.Zero);
 

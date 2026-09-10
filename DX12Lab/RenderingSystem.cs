@@ -25,6 +25,10 @@ public struct GeometryConstantBuffer
     public float TessMax;
     public float TessNearDist;
     public float TessFarDist;
+    public float Roughness;
+    public float Metallic;
+    public float PadGeom0;
+    public float PadGeom1;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -58,6 +62,10 @@ public struct LightingConstantBuffer
     public int ShadowsEnabled;
     public int GBufferViewMode;
     public float Padding3;
+    public float PrefilteredMipCount;
+    public float IblIntensity;
+    public float Padding4;
+    public float Padding5;
 }
 
 public class RenderingSystem : IDisposable
@@ -95,6 +103,13 @@ public class RenderingSystem : IDisposable
     private ID3D12Resource _lightingCb;
     private unsafe LightingConstantBuffer* _lightingCbData;
     private ID3D12DescriptorHeap _lightingDescHeap;
+
+    private ID3D12Resource _irradianceMap;
+    private ID3D12Resource _prefilteredEnvMap;
+    private ID3D12Resource _brdfLutMap;
+    private int _prefilteredMipCount;
+
+    public float IblIntensity { get; set; } = 1.0f;
 
     private Dictionary<string, uint> _textureIndices = new();
 
@@ -165,7 +180,7 @@ public class RenderingSystem : IDisposable
     public float Exposure { get; set; } = 1.0f;
     public bool ParticlesEnabled { get; set; } = true;
     public float CascadeLambda { get; set; } = 0.65f;
-    public int GBufferViewMode { get; set; } = 0; 
+    public int GBufferViewMode { get; set; } = 0;
     public bool WireframeEnabled { get; set; } = false;
 
     public RenderingSystem(IntPtr hwnd, int width, int height)
@@ -235,6 +250,8 @@ public class RenderingSystem : IDisposable
         CreateInstancePass();
 
         _particles = new ParticleSystem(_device, _commandList, MaxParticleCount);
+
+        CreateIblTextures();
 
         LoadScene();
         SetupLights();
@@ -466,7 +483,7 @@ public class RenderingSystem : IDisposable
         {
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
-                    DescriptorRangeType.ShaderResourceView, 4, 0)),
+                    DescriptorRangeType.ShaderResourceView, 7, 0)), // NEW: was 4 (gbuffer x3 + shadow); now +irradiance +prefiltered +brdf
                 ShaderVisibility.Pixel),
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
@@ -534,7 +551,7 @@ public class RenderingSystem : IDisposable
 
         _lightingDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-            GBuffer.Count + 2, DescriptorHeapFlags.ShaderVisible));
+            GBuffer.Count + 5, DescriptorHeapFlags.ShaderVisible));
 
         RefreshLightingGBufferDescriptors();
 
@@ -546,10 +563,85 @@ public class RenderingSystem : IDisposable
         _csm.CreateSrv(shadowSrvHandle);
 
         var cbvHandle = _lightingDescHeap.GetCPUDescriptorHandleForHeapStart();
-        cbvHandle.Ptr += (uint)(GBuffer.Count + 1) * descSize;
+        cbvHandle.Ptr += (uint)(GBuffer.Count + 4) * descSize;
         _device.CreateConstantBufferView(
             new ConstantBufferViewDescription(_lightingCb.GPUVirtualAddress, (uint)cbSize),
             cbvHandle);
+    }
+
+    private void CreateIblTextures()
+    {
+        string iblDir = Path.Combine(AppContext.BaseDirectory, "Assets", "IBL");
+
+        string[] irradianceFaces =
+        {
+            Path.Combine(iblDir, "irradiance", "px.hdr"),
+            Path.Combine(iblDir, "irradiance", "nx.hdr"),
+            Path.Combine(iblDir, "irradiance", "py.hdr"),
+            Path.Combine(iblDir, "irradiance", "ny.hdr"),
+            Path.Combine(iblDir, "irradiance", "pz.hdr"),
+            Path.Combine(iblDir, "irradiance", "nz.hdr"),
+        };
+        _irradianceMap = IblLoader.LoadCubemap(_device, _commandList,
+            new List<string[]> { irradianceFaces }, _uploadBuffers);
+
+        var prefilteredMips = new List<string[]>();
+        for (int mip = 0; ; mip++)
+        {
+            string mipDir = Path.Combine(iblDir, "prefiltered", $"mip{mip}");
+            string px = Path.Combine(mipDir, "px.hdr");
+            if (!File.Exists(px)) break;
+
+            prefilteredMips.Add(new[]
+            {
+                px,
+                Path.Combine(mipDir, "nx.hdr"),
+                Path.Combine(mipDir, "py.hdr"),
+                Path.Combine(mipDir, "ny.hdr"),
+                Path.Combine(mipDir, "pz.hdr"),
+                Path.Combine(mipDir, "nz.hdr"),
+            });
+        }
+        if (prefilteredMips.Count == 0)
+            throw new Exception("No prefiltered environment mips found in Assets/IBL/prefiltered/mip0..");
+
+        _prefilteredEnvMap = IblLoader.LoadCubemap(_device, _commandList, prefilteredMips, _uploadBuffers);
+        _prefilteredMipCount = prefilteredMips.Count;
+
+        string brdfLutPath = Path.Combine(iblDir, "brdf_lut.png");
+        _brdfLutMap = TextureLoader.LoadTexture(_device, _commandList, brdfLutPath, out var brdfUpload);
+        _uploadBuffers.Add(brdfUpload);
+
+        uint descSize = _device.GetDescriptorHandleIncrementSize(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+        var handle = _lightingDescHeap.GetCPUDescriptorHandleForHeapStart();
+        handle.Ptr += (uint)(GBuffer.Count + 1) * descSize;
+
+        _device.CreateShaderResourceView(_irradianceMap, new ShaderResourceViewDescription
+        {
+            Format = Format.R16G16B16A16_Float,
+            ViewDimension = ShaderResourceViewDimension.TextureCube,
+            Shader4ComponentMapping = ShaderComponentMapping.Default,
+            TextureCube = new TextureCubeShaderResourceView { MipLevels = 1 },
+        }, handle);
+        handle.Ptr += descSize;
+
+        _device.CreateShaderResourceView(_prefilteredEnvMap, new ShaderResourceViewDescription
+        {
+            Format = Format.R16G16B16A16_Float,
+            ViewDimension = ShaderResourceViewDimension.TextureCube,
+            Shader4ComponentMapping = ShaderComponentMapping.Default,
+            TextureCube = new TextureCubeShaderResourceView { MipLevels = (uint)_prefilteredMipCount },
+        }, handle);
+        handle.Ptr += descSize;
+
+        _device.CreateShaderResourceView(_brdfLutMap, new ShaderResourceViewDescription
+        {
+            Format = Format.R8G8B8A8_UNorm,
+            ViewDimension = ShaderResourceViewDimension.Texture2D,
+            Shader4ComponentMapping = ShaderComponentMapping.Default,
+            Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
+        }, handle);
     }
 
     private void RefreshLightingGBufferDescriptors()
@@ -929,6 +1021,12 @@ public class RenderingSystem : IDisposable
         {
             var mat = _model.Materials[mesh.MaterialIndex];
 
+            unsafe
+            {
+                _geometryCbData->Roughness = mat.Roughness;
+                _geometryCbData->Metallic = mat.Metallic;
+            }
+
             if (!string.IsNullOrEmpty(mat.DiffuseTexturePath) &&
                 _textureIndices.TryGetValue(mat.DiffuseTexturePath, out uint diffSlot))
             {
@@ -1135,6 +1233,8 @@ public class RenderingSystem : IDisposable
             _lightingCbData->ShadowMapSize = CascadedShadowMap.ShadowMapSize;
             _lightingCbData->ShadowsEnabled = ShadowsEnabled ? 1 : 0;
             _lightingCbData->GBufferViewMode = GBufferViewMode;
+            _lightingCbData->PrefilteredMipCount = _prefilteredMipCount; // NEW
+            _lightingCbData->IblIntensity = IblIntensity;                // NEW
         }
 
         uint descSize = _device.GetDescriptorHandleIncrementSize(
@@ -1146,7 +1246,7 @@ public class RenderingSystem : IDisposable
             _lightingDescHeap.GetGPUDescriptorHandleForHeapStart());
 
         var cbvGpu = _lightingDescHeap.GetGPUDescriptorHandleForHeapStart();
-        cbvGpu.Ptr += (uint)(GBuffer.Count + 1) * descSize;
+        cbvGpu.Ptr += (uint)(GBuffer.Count + 4) * descSize; // NEW: was Count+1
         _commandList.SetGraphicsRootDescriptorTable(1, cbvGpu);
 
         _commandList.RSSetViewport(new Viewport(0, 0, _width, _height));
@@ -1244,6 +1344,9 @@ public class RenderingSystem : IDisposable
         _model?.Dispose();
         _globalDisplacementTex?.Dispose();
         _globalNormalTex?.Dispose();
+        _irradianceMap?.Dispose();
+        _prefilteredEnvMap?.Dispose();
+        _brdfLutMap?.Dispose();
         _gBuffer?.Dispose();
         _geometryPso?.Dispose();
         _geometryWireframePso?.Dispose();

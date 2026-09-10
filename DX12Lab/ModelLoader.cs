@@ -40,6 +40,13 @@ public class Material
     public string NormalTexturePath { get; set; } = "";
     public Vector4 DiffuseColor { get; set; } = Vector4.One;
 
+    // NEW: PBR parameters. Assimp/Sponza materials don't carry real PBR
+    // roughness/metallic values, so these default to sensible constants and
+    // are only nudged by legacy Phong "shininess" when present as a rough
+    // approximation (high shininess -> low roughness).
+    public float Roughness { get; set; } = 0.7f;
+    public float Metallic { get; set; } = 0.0f;
+
     public bool HasDisplacement => !string.IsNullOrEmpty(DisplacementTexturePath);
     public bool HasNormalMap => !string.IsNullOrEmpty(NormalTexturePath);
 }
@@ -97,6 +104,16 @@ public static class ModelLoader
                 string texPath = Path.Combine(dir, mat.TextureNormal.FilePath);
                 material.NormalTexturePath = texPath;
                 LoadTexture(device, commandList, texPath, model, uploadBuffers);
+            }
+
+            // NEW: rough legacy-Phong -> PBR approximation. Shininess is on a
+            // [0..~1000] scale; map it to a [0..1] roughness range. Replace
+            // this with real glTF metallic/roughness textures if you import
+            // PBR-authored assets instead of Sponza's classic OBJ/MTL set.
+            if (mat.HasShininess && mat.Shininess > 0f)
+            {
+                float shininess01 = Math.Clamp(mat.Shininess / 512f, 0f, 1f);
+                material.Roughness = Math.Clamp(1.0f - shininess01, 0.05f, 1.0f);
             }
 
             model.Materials.Add(material);
