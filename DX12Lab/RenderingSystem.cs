@@ -29,6 +29,9 @@ public struct GeometryConstantBuffer
     public float Metallic;
     public float PadGeom0;
     public float PadGeom1;
+    public float BumpStrength;
+    public Vector2 DisplacementMapTexelSize;
+    public float HeightMid;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -71,7 +74,7 @@ public struct LightingConstantBuffer
 public class RenderingSystem : IDisposable
 {
     private const int FrameCount = 2;
-    private const int MaxInstances = 4000;
+    private const int MaxInstances = 40000;
     private const int MaxParticleCount = 20000;
 
     private ID3D12Device _device;
@@ -121,17 +124,20 @@ public class RenderingSystem : IDisposable
     private int _width, _height;
 
     private Model _model;
+    private string _whiteTexPath = "";
     private List<ID3D12Resource> _uploadBuffers = new();
 
-    public Vector3 CameraPos { get; set; } = new Vector3(-10, 3, 0);
-    public Vector3 CameraTarget { get; set; } = new Vector3(10, 3, 0);
+    public Vector3 CameraPos { get; set; } = new Vector3(-17, 1.8f, 0);
+    public Vector3 CameraTarget { get; set; } = new Vector3(15, 6, 0);
     public List<LightData> Lights { get; } = new();
 
-    public float DisplacementScale { get; set; } = 1.0f;
+    public float DisplacementScale { get; set; } = 0.05f;
     public float TessMin { get; set; } = 1.0f;
     public float TessMax { get; set; } = 16.0f;
     public float TessNearDist { get; set; } = 5.0f;
     public float TessFarDist { get; set; } = 50.0f;
+    public float BumpStrength { get; set; } = 3.0f;
+    public float HeightMid { get; set; } = 0.5f;
 
     private ID3D12Resource _globalDisplacementTex;
     private ID3D12Resource _globalNormalTex;
@@ -483,7 +489,7 @@ public class RenderingSystem : IDisposable
         {
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
-                    DescriptorRangeType.ShaderResourceView, 7, 0)), // NEW: was 4 (gbuffer x3 + shadow); now +irradiance +prefiltered +brdf
+                    DescriptorRangeType.ShaderResourceView, 7, 0)),
                 ShaderVisibility.Pixel),
             new RootParameter1(
                 new RootDescriptorTable1(new DescriptorRange1(
@@ -777,9 +783,14 @@ public class RenderingSystem : IDisposable
     private void LoadScene()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Assets", "Sponza", "sponza.obj");
-        _model = ModelLoader.Load(_device, _commandList, path, _uploadBuffers);
+        _model = ModelLoader.Load(_device, _commandList, path, _uploadBuffers,
+            new Vector3(0, 15.3f, 0), skipGlass: true);
 
-        uint textureCount = (uint)_model.Textures.Count;
+        _whiteTexPath = Path.Combine(AppContext.BaseDirectory, "Assets", "white.png");
+        _model.Textures[_whiteTexPath] = TextureLoader.LoadTexture(_device, _commandList, _whiteTexPath, out var whiteUpload);
+        _uploadBuffers.Add(whiteUpload);
+
+        uint textureCount = (uint)_model.Textures.Count; 
         _globalTexHeapOffset = 1 + textureCount;
         _geometryDescHeap = _device.CreateDescriptorHeap(new DescriptorHeapDescription(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
@@ -891,16 +902,28 @@ public class RenderingSystem : IDisposable
 
         Lights.Add(new LightData
         {
-            Position = new Vector4(0, 10, 0, 30),
+            Position = new Vector4(0, 22, 0, 30),
             Direction = new Vector4(0, -1, 0, 1),
             Color = new Vector4(1f, 0.5f, 0.2f, 3f),
         });
 
         Lights.Add(new LightData
         {
-            Position = new Vector4(-10, 5, 0, 20),
+            Position = new Vector4(-10, 22, 0, 20),
             Direction = new Vector4(0, -1, 0, 1),
             Color = new Vector4(0.2f, 0.5f, 1f, 1.5f),
+        });
+        Lights.Add(new LightData
+        {
+            Position = new Vector4(-8, 22, 0, 25),
+            Direction = new Vector4(0, -1, 0, 1),
+            Color = new Vector4(1f, 0.85f, 0.6f, 2f),
+        });
+        Lights.Add(new LightData
+        {
+            Position = new Vector4(8, 22, 0, 25),
+            Direction = new Vector4(0, -1, 0, 1),
+            Color = new Vector4(1f, 0.85f, 0.6f, 2f),
         });
     }
 
@@ -1021,19 +1044,28 @@ public class RenderingSystem : IDisposable
         {
             var mat = _model.Materials[mesh.MaterialIndex];
 
+            ID3D12Resource dispTexRes = _globalDisplacementTex;
+            if (mat.HasDisplacement && _model.Textures.TryGetValue(mat.DisplacementTexturePath, out var matDispTex))
+                dispTexRes = matDispTex;
+
+            var dispDesc = dispTexRes.Description;
+
             unsafe
             {
                 _geometryCbData->Roughness = mat.Roughness;
                 _geometryCbData->Metallic = mat.Metallic;
+                _geometryCbData->BumpStrength = BumpStrength;
+                _geometryCbData->DisplacementMapTexelSize = new Vector2(
+                    1.0f / dispDesc.Width, 1.0f / dispDesc.Height);
+                _geometryCbData->HeightMid = HeightMid;
             }
 
-            if (!string.IsNullOrEmpty(mat.DiffuseTexturePath) &&
-                _textureIndices.TryGetValue(mat.DiffuseTexturePath, out uint diffSlot))
-            {
-                var h = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
-                h.Ptr += (1 + diffSlot) * _geometryDescSize;
-                _commandList.SetGraphicsRootDescriptorTable(1, h);
-            }
+            string diffKey = (!string.IsNullOrEmpty(mat.DiffuseTexturePath) &&
+                  _textureIndices.ContainsKey(mat.DiffuseTexturePath))
+                 ? mat.DiffuseTexturePath : _whiteTexPath;
+            var hd = _geometryDescHeap.GetGPUDescriptorHandleForHeapStart();
+            hd.Ptr += (1 + _textureIndices[diffKey]) * _geometryDescSize;
+            _commandList.SetGraphicsRootDescriptorTable(1, hd);
 
             if (mat.HasDisplacement &&
                 _textureIndices.TryGetValue(mat.DisplacementTexturePath, out uint dispSlot))

@@ -9,15 +9,18 @@ cbuffer ConstantBuffer : register(b0)
     float TessMax;
     float TessNearDist;
     float TessFarDist;
-    float Roughness;   // NEW: material roughness [0..1]
-    float Metallic;    // NEW: material metallic  [0..1]
-    float PadGeom0;    // NEW: padding to keep 16-byte vector alignment
-    float PadGeom1;    // NEW: padding
+    float Roughness;
+    float Metallic;
+    float PadGeom0;
+    float PadGeom1;
+    float BumpStrength;
+    float2 DisplacementMapTexelSize;
+    float HeightMid;
 };
 
 Texture2D gDiffuseMap : register(t0);
-Texture2D gDisplacementMap : register(t1); 
-Texture2D gNormalMap : register(t2); 
+Texture2D gDisplacementMap : register(t1);
+Texture2D gNormalMap : register(t2);
 SamplerState gSampler : register(s0);
 
 struct VertexIn
@@ -117,8 +120,7 @@ DS_OUT DSMain(
                     + bary.z * patch[2].TexCoord;
     
     float h = gDisplacementMap.SampleLevel(gSampler, texCoord, 0).r;
-    h = h * 0.5f; 
-    pos += normal * (h * DisplacementScale);
+    pos += normal * ((h - HeightMid) * DisplacementScale);
 
     dout.Position = mul(float4(pos, 1.0f), WorldViewProj);
     dout.PosWorld = pos;
@@ -138,29 +140,35 @@ struct PSOutput
 PSOutput PSMain(DS_OUT pin)
 {
     float3 N = normalize(pin.Normal);
-    
-    float4 normalSample = gNormalMap.Sample(gSampler, pin.TexCoord);
-    
-    float3 perturbedN = N;
-    if (normalSample.b > 0.5f && (normalSample.r != normalSample.g || normalSample.r != normalSample.b))
-    {
-        float3 dp1 = ddx(pin.PosWorld);
-        float3 dp2 = ddy(pin.PosWorld);
-        float2 duv1 = ddx(pin.TexCoord);
-        float2 duv2 = ddy(pin.TexCoord);
 
-        float r = 1.0f / (duv1.x * duv2.y - duv1.y * duv2.x);
-        float3 T = normalize((dp1 * duv2.y - dp2 * duv1.y) * r);
-        float3 B = normalize((dp2 * duv1.x - dp1 * duv2.x) * r);
+    float3 dp1 = ddx(pin.PosWorld);
+    float3 dp2 = ddy(pin.PosWorld);
+    float2 duv1 = ddx(pin.TexCoord);
+    float2 duv2 = ddy(pin.TexCoord);
 
-        float3 nm = normalSample.xyz * 2.0f - 1.0f;
-        perturbedN = normalize(nm.x * T + nm.y * B + nm.z * N);
-    }
+    float r = 1.0f / (duv1.x * duv2.y - duv1.y * duv2.x);
+    float3 T = normalize((dp1 * duv2.y - dp2 * duv1.y) * r);
+    float3 B = normalize((dp2 * duv1.x - dp1 * duv2.x) * r);
+    
+    float2 texel = DisplacementMapTexelSize;
+    float hL = gDisplacementMap.Sample(gSampler, pin.TexCoord - float2(texel.x, 0)).r;
+    float hR = gDisplacementMap.Sample(gSampler, pin.TexCoord + float2(texel.x, 0)).r;
+    float hD = gDisplacementMap.Sample(gSampler, pin.TexCoord - float2(0, texel.y)).r;
+    float hU = gDisplacementMap.Sample(gSampler, pin.TexCoord + float2(0, texel.y)).r;
+
+    float dhdu = (hR - hL) * 0.5f;
+    float dhdv = (hU - hD) * 0.5f;
+    
+    
+    float maxSlope = 0.35f;
+    dhdu = clamp(dhdu, -maxSlope, maxSlope);
+    dhdv = clamp(dhdv, -maxSlope, maxSlope);
+
+    float3 perturbedN = normalize(N - (dhdu * T + dhdv * B) * BumpStrength);
 
     PSOutput output;
     output.Position = float4(pin.PosWorld, 1.0f);
-    output.Normal = float4(perturbedN, Metallic);                       // NEW: metallic in alpha
-    output.Albedo = float4(gDiffuseMap.Sample(gSampler, pin.TexCoord).rgb, Roughness); // NEW: roughness in alpha
-
+    output.Normal = float4(perturbedN, Metallic);
+    output.Albedo = float4(gDiffuseMap.Sample(gSampler, pin.TexCoord).rgb, Roughness);
     return output;
 }

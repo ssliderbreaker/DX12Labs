@@ -1,19 +1,10 @@
-// ===========================================================================
-// lighting_pass.hlsl -- PBR (Cook-Torrance) + IBL
-//
-// GBuffer layout (repurposed, no extra render target needed):
-//   gPosition.rgb = world position          gPosition.a   = unused (1.0)
-//   gNormal.rgb   = world normal             gNormal.a     = metallic
-//   gAlbedo.rgb   = base color (albedo)      gAlbedo.a     = roughness
-// ===========================================================================
-
-Texture2D   gPosition      : register(t0);
-Texture2D   gNormal        : register(t1);
-Texture2D   gAlbedo        : register(t2);
-Texture2DArray gShadowMap  : register(t3);
-TextureCube gIrradianceMap : register(t4); // diffuse IBL (precomputed)
-TextureCube gPrefilteredEnvMap : register(t5); // specular IBL, mip chain = roughness
-Texture2D   gBRDFLUT       : register(t6); // precomputed split-sum BRDF integration LUT
+Texture2D gPosition : register(t0);
+Texture2D gNormal : register(t1);
+Texture2D gAlbedo : register(t2);
+Texture2DArray gShadowMap : register(t3);
+TextureCube gIrradianceMap : register(t4);
+TextureCube gPrefilteredEnvMap : register(t5);
+Texture2D gBRDFLUT : register(t6);
 
 SamplerState gSampler : register(s0);
 SamplerComparisonState gShadowSampler : register(s1);
@@ -59,15 +50,15 @@ VertexOut VSMain(uint id : SV_VertexID)
     return vout;
 }
 
-// ---------------------------------------------------------------------------
-// Shadows (unchanged from the Phong version)
-// ---------------------------------------------------------------------------
 
 int SelectCascade(float dist)
 {
-    if (dist < CascadeSplits.x) return 0;
-    if (dist < CascadeSplits.y) return 1;
-    if (dist < CascadeSplits.z) return 2;
+    if (dist < CascadeSplits.x)
+        return 0;
+    if (dist < CascadeSplits.y)
+        return 1;
+    if (dist < CascadeSplits.z)
+        return 2;
     return 3;
 }
 
@@ -114,9 +105,6 @@ float CalcShadow(float3 worldPos, float3 normal, float3 lightDir)
     return shadow / 9.0f;
 }
 
-// ---------------------------------------------------------------------------
-// Cook-Torrance PBR
-// ---------------------------------------------------------------------------
 
 static const float PI = 3.14159265359f;
 
@@ -135,7 +123,7 @@ float DistributionGGX(float3 N, float3 H, float roughness)
 float GeometrySchlickGGX(float NdotV, float roughness)
 {
     float r = roughness + 1.0f;
-    float k = (r * r) / 8.0f; // direct lighting remap
+    float k = (r * r) / 8.0f; 
     return NdotV / (NdotV * (1.0f - k) + k);
 }
 
@@ -157,7 +145,6 @@ float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
     return F0 + (Fmax - F0) * pow(saturate(1.0f - cosTheta), 5.0f);
 }
 
-// Direct (analytic) light contribution, Cook-Torrance specular + Lambert diffuse
 float3 CalcLightPBR(LightData light, float3 worldPos, float3 N, float3 V,
     float3 albedo, float roughness, float metallic, float3 F0)
 {
@@ -165,24 +152,26 @@ float3 CalcLightPBR(LightData light, float3 worldPos, float3 N, float3 V,
     float attenuation = 1.0f;
     int type = (int) light.Direction.w;
 
-    if (type == 0) // directional
+    if (type == 0)
     {
         L = normalize(-light.Direction.xyz);
     }
-    else if (type == 1) // point
+    else if (type == 1)
     {
         float3 toLight = light.Position.xyz - worldPos;
         float dist = length(toLight);
-        if (dist > light.Position.w) return float3(0, 0, 0);
+        if (dist > light.Position.w)
+            return float3(0, 0, 0);
         L = normalize(toLight);
         attenuation = 1.0f - saturate(dist / light.Position.w);
         attenuation *= attenuation;
     }
-    else // spot
+    else
     {
         float3 toLight = light.Position.xyz - worldPos;
         float dist = length(toLight);
-        if (dist > light.Position.w) return float3(0, 0, 0);
+        if (dist > light.Position.w)
+            return float3(0, 0, 0);
         L = normalize(toLight);
         attenuation = 1.0f - saturate(dist / light.Position.w);
         attenuation *= attenuation;
@@ -209,18 +198,13 @@ float3 CalcLightPBR(LightData light, float3 worldPos, float3 N, float3 V,
     float3 numerator = NDF * G * F;
     float denom = 4.0f * NdotV * NdotL + 0.0001f;
     float3 specular = numerator / denom;
-
-    // energy conservation: diffuse is only what's left after specular reflectance,
-    // and metals have no diffuse term at all
+    
     float3 kS = F;
     float3 kD = (1.0f - kS) * (1.0f - metallic);
 
     return (kD * albedo / PI + specular) * radiance * NdotL;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 float4 PSMain(VertexOut pin) : SV_TARGET
 {
@@ -233,19 +217,22 @@ float4 PSMain(VertexOut pin) : SV_TARGET
     float roughness = clamp(albedoSample.a, 0.045f, 1.0f);
     float metallic = saturate(normalSample.a);
 
-    if (GBufferViewMode == 1) return float4(albedo, 1.0f);
-    if (GBufferViewMode == 2) return float4(N * 0.5f + 0.5f, 1.0f);
-    if (GBufferViewMode == 3) return float4(frac(worldPos * 0.05f), 1.0f);
-    if (GBufferViewMode == 4) return float4(roughness.xxx, 1.0f);
-    if (GBufferViewMode == 5) return float4(metallic.xxx, 1.0f);
+    if (GBufferViewMode == 1)
+        return float4(albedo, 1.0f);
+    if (GBufferViewMode == 2)
+        return float4(N * 0.5f + 0.5f, 1.0f);
+    if (GBufferViewMode == 3)
+        return float4(frac(worldPos * 0.05f), 1.0f);
+    if (GBufferViewMode == 4)
+        return float4(roughness.xxx, 1.0f);
+    if (GBufferViewMode == 5)
+        return float4(metallic.xxx, 1.0f);
 
     float3 V = normalize(CameraPos.xyz - worldPos);
     float NdotV = max(dot(N, V), 0.0001f);
-
-    // dielectrics: F0 = 0.04, metals: F0 = albedo
+    
     float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
-
-    // --- direct lighting ---
+    
     float shadow = 1.0f;
     bool light0IsSun = (LightCount > 0) && ((int) Lights[0].Direction.w == 0);
     if (light0IsSun)
@@ -260,8 +247,7 @@ float4 PSMain(VertexOut pin) : SV_TARGET
         float shadowFactor = (i == 0 && light0IsSun) ? shadow : 1.0f;
         Lo += CalcLightPBR(Lights[i], worldPos, N, V, albedo, roughness, metallic, F0) * shadowFactor;
     }
-
-    // --- image-based (ambient) lighting ---
+    
     float3 kS = FresnelSchlickRoughness(NdotV, F0, roughness);
     float3 kD = (1.0f - kS) * (1.0f - metallic);
 

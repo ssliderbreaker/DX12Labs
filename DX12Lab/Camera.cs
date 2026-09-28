@@ -5,7 +5,7 @@ namespace DX12Lab;
 
 public class Camera
 {
-    public Vector3 Position = new(-10, 3, 0);
+    public Vector3 Position = new(-10, 23, 0);
     public float Yaw = 0f;
     public float Pitch = 0f;
 

@@ -43,14 +43,14 @@ float3 ApplyToneMapping(float3 color)
 {
     color *= Exposure;
     color = ACESFilm(color);
-    color = pow(max(color, 0.0f), 1.0f / 2.2f); 
+    color = pow(max(color, 0.0f), 1.0f / 2.2f);
     return color;
 }
 
 float3 ApplyVignette(float3 color, float2 uv)
 {
     float2 centered = uv - 0.5f;
-    float dist = length(centered) * 1.4142136f; 
+    float dist = length(centered) * 1.4142136f;
     float vig = 1.0f - VignetteStrength *
         smoothstep(VignetteRadius, VignetteRadius + VignetteSoftness, dist);
     return color * saturate(vig);

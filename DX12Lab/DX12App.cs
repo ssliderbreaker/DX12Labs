@@ -27,7 +27,7 @@ public class DX12App : AppBase
         _camera.Update(Input, (float)deltaTime);
         _renderer.CameraPos = _camera.Position;
         _renderer.CameraTarget = _camera.Target;
-
+        
         _frameCount++;
         _titleTimer += deltaTime;
         if (_titleTimer > 0.2)

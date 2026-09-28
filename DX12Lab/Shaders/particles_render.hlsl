@@ -36,7 +36,7 @@ VS_OUT VSMain(uint id : SV_VertexID)
 
     o.WorldPos = p.Position;
     o.Color = p.Color;
-    o.Size = alive ? p.Size : 0.0f; 
+    o.Size = alive ? p.Size : 0.0f;
     return o;
 }
 
@@ -51,7 +51,7 @@ struct GS_OUT
 void GSMain(point VS_OUT input[1], inout TriangleStream<GS_OUT> stream)
 {
     if (input[0].Size <= 0.0f)
-        return; 
+        return;
 
     float3 center = input[0].WorldPos;
     float halfSize = input[0].Size * 0.5f;
@@ -84,7 +84,7 @@ float4 PSMain(GS_OUT input) : SV_TARGET
     float2 centered = input.TexCoord * 2.0f - 1.0f;
     float dist2 = dot(centered, centered);
     if (dist2 > 1.0f)
-        discard; 
+        discard;
 
     float shade = saturate(1.0f - dist2);
     return float4(input.Color.rgb * (0.6f + 0.4f * shade), 1.0f);

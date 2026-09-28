@@ -12,6 +12,7 @@ struct Particle
 RWStructuredBuffer<Particle> gParticles : register(u0);
 ConsumeStructuredBuffer<uint> gDeadList : register(u1);
 \
+
 cbuffer EmitConstants : register(b0)
 {
     float3 gEmitterPos;
@@ -20,6 +21,7 @@ cbuffer EmitConstants : register(b0)
     uint gSeed;
 };
 \
+
 float rand(inout uint seed)
 {
     seed = seed * 747796405u + 2891336453u;

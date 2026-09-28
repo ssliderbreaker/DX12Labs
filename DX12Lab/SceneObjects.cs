@@ -34,9 +34,9 @@ public static class SceneGenerator
         for (int i = 0; i < count; i++)
         {
             var pos = new Vector3(
-                Lerp(rnd, -30f, 30f),
-                Lerp(rnd, 0.3f, 13f),
-                Lerp(rnd, -18f, 18f));
+                Lerp(rnd, -20f, 20f),
+                Lerp(rnd, 0.3f, 20f),
+                Lerp(rnd, -14f, 14f));
 
             float scale = Lerp(rnd, 0.15f, 0.5f);
 
@@ -56,12 +56,12 @@ public static class CubeMesh
     {
         Span<Vector3> facePos = stackalloc Vector3[]
         {
-            new(-0.5f,-0.5f,-0.5f), new(-0.5f, 0.5f,-0.5f), new(0.5f, 0.5f,-0.5f), new(0.5f,-0.5f,-0.5f), 
-            new(0.5f,-0.5f, 0.5f),  new(0.5f, 0.5f, 0.5f),  new(-0.5f,0.5f, 0.5f), new(-0.5f,-0.5f, 0.5f), 
+            new(-0.5f,-0.5f,-0.5f), new(-0.5f, 0.5f,-0.5f), new(0.5f, 0.5f,-0.5f), new(0.5f,-0.5f,-0.5f),
+            new(0.5f,-0.5f, 0.5f),  new(0.5f, 0.5f, 0.5f),  new(-0.5f,0.5f, 0.5f), new(-0.5f,-0.5f, 0.5f),
             new(-0.5f,-0.5f, 0.5f), new(-0.5f,0.5f, 0.5f),  new(-0.5f,0.5f,-0.5f),new(-0.5f,-0.5f,-0.5f),
-            new(0.5f,-0.5f,-0.5f),  new(0.5f, 0.5f,-0.5f),  new(0.5f, 0.5f, 0.5f),new(0.5f,-0.5f, 0.5f), 
-            new(-0.5f, 0.5f,-0.5f), new(-0.5f,0.5f, 0.5f),  new(0.5f, 0.5f, 0.5f),new(0.5f, 0.5f,-0.5f), 
-            new(-0.5f,-0.5f, 0.5f), new(-0.5f,-0.5f,-0.5f), new(0.5f,-0.5f,-0.5f),new(0.5f,-0.5f, 0.5f), 
+            new(0.5f,-0.5f,-0.5f),  new(0.5f, 0.5f,-0.5f),  new(0.5f, 0.5f, 0.5f),new(0.5f,-0.5f, 0.5f),
+            new(-0.5f, 0.5f,-0.5f), new(-0.5f,0.5f, 0.5f),  new(0.5f, 0.5f, 0.5f),new(0.5f, 0.5f,-0.5f),
+            new(-0.5f,-0.5f, 0.5f), new(-0.5f,-0.5f,-0.5f), new(0.5f,-0.5f,-0.5f),new(0.5f,-0.5f, 0.5f),
         };
 
         Vector3[] faceNormals = { -Vector3.UnitZ, Vector3.UnitZ, -Vector3.UnitX, Vector3.UnitX, Vector3.UnitY, -Vector3.UnitY };
@@ -81,7 +81,7 @@ public static class CubeMesh
         for (int f = 0; f < 6; f++)
         {
             uint b = (uint)(f * 4);
-            uint[] quad = { b, b + 2, b + 1, b, b + 3, b + 2 }; 
+            uint[] quad = { b, b + 2, b + 1, b, b + 3, b + 2 };
             Array.Copy(quad, 0, indices, f * 6, 6);
         }
 

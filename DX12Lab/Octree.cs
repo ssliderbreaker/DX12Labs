@@ -85,13 +85,13 @@ public class Octree
             _entries = new List<Entry>();
 
             foreach (var e in old)
-                Insert(e.Index, e.Bounds); 
+                Insert(e.Index, e.Bounds);
         }
 
         public void Query(Frustum frustum, List<int> results)
         {
             if (!frustum.Intersects(Bounds))
-                return; 
+                return;
 
             foreach (var e in _entries)
                 results.Add(e.Index);

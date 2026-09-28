@@ -7,16 +7,6 @@ using Vortice.DXGI;
 
 namespace DX12Lab;
 
-// Loads a cubemap (optionally with several precomputed mip levels) from 6
-// face images per mip level, and uploads it as a single ID3D12Resource
-// (TextureCube, Format.R16G16B16A16_Float) ready for a ShaderResourceView.
-//
-// Used for:
-//  - the irradiance map   (1 mip,  low resolution, diffuse IBL)
-//  - the prefiltered environment map (N mips, mip = roughness level, specular IBL)
-//
-// Face order per mip level MUST be: +X, -X, +Y, -Y, +Z, -Z
-// Accepts both HDR (.hdr, float data) and regular LDR images (png/jpg) per face.
 public static class IblLoader
 {
     public static ID3D12Resource LoadCubemap(
@@ -25,10 +15,6 @@ public static class IblLoader
         List<string[]> mips,
         List<ID3D12Resource> uploadBuffers)
     {
-        // Cubemap faces are stored bottom-up like the rest of this project's
-        // textures use top-down (TextureLoader flips diffuse/normal maps).
-        // Face crops for cubemaps are direction-mapped, not UV-mapped, so we
-        // explicitly disable the flip here regardless of what other loaders set.
         StbImage.stbi_set_flip_vertically_on_load(0);
 
         int mipCount = mips.Count;
@@ -123,7 +109,6 @@ public static class IblLoader
                 var (w, h) = mipSizes[mip];
                 for (int face = 0; face < 6; face++)
                 {
-                    // D3D12 subresource index = MipSlice + ArraySlice * MipLevels
                     int sub = mip + face * mipCount;
 
                     var fp = footprints[sub];

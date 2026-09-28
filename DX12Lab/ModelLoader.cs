@@ -1,4 +1,5 @@
 ﻿using Assimp;
+using Assimp.Configs;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -35,20 +36,20 @@ public class Mesh : IDisposable
 
 public class Material
 {
+    public string Name { get; set; } = "";
+
     public string DiffuseTexturePath { get; set; } = "";
     public string DisplacementTexturePath { get; set; } = "";
     public string NormalTexturePath { get; set; } = "";
     public Vector4 DiffuseColor { get; set; } = Vector4.One;
 
-    // NEW: PBR parameters. Assimp/Sponza materials don't carry real PBR
-    // roughness/metallic values, so these default to sensible constants and
-    // are only nudged by legacy Phong "shininess" when present as a rough
-    // approximation (high shininess -> low roughness).
     public float Roughness { get; set; } = 0.7f;
     public float Metallic { get; set; } = 0.0f;
 
     public bool HasDisplacement => !string.IsNullOrEmpty(DisplacementTexturePath);
     public bool HasNormalMap => !string.IsNullOrEmpty(NormalTexturePath);
+
+    public bool IsGlass => Name.StartsWith("staklo", StringComparison.OrdinalIgnoreCase);
 }
 
 public class Model : IDisposable
@@ -69,12 +70,17 @@ public static class ModelLoader
     public static Model Load(ID3D12Device device,
         ID3D12GraphicsCommandList commandList,
         string path,
-        List<ID3D12Resource> uploadBuffers)
+        List<ID3D12Resource> uploadBuffers,
+        Vector3 offset = default,
+        bool skipGlass = false)
     {
         var importer = new AssimpContext();
+
+        importer.SetConfig(new NormalSmoothingAngleConfig(80f));
+
         var scene = importer.ImportFile(path,
             PostProcessSteps.Triangulate |
-            PostProcessSteps.GenerateNormals |
+            PostProcessSteps.GenerateSmoothNormals |
             PostProcessSteps.FlipUVs |
             PostProcessSteps.JoinIdenticalVertices);
 
@@ -83,7 +89,11 @@ public static class ModelLoader
 
         foreach (var mat in scene.Materials)
         {
-            var material = new Material();
+            System.Diagnostics.Debug.WriteLine(
+        $"[Material] Diffuse={mat.HasTextureDiffuse} " +
+        $"Height={mat.HasTextureHeight} path='{(mat.HasTextureHeight ? mat.TextureHeight.FilePath : "")}' " +
+        $"Normal={mat.HasTextureNormal} path='{(mat.HasTextureNormal ? mat.TextureNormal.FilePath : "")}'");
+            var material = new Material { Name = mat.Name ?? "" };
 
             if (mat.HasTextureDiffuse)
             {
@@ -92,9 +102,12 @@ public static class ModelLoader
                 LoadTexture(device, commandList, texPath, model, uploadBuffers);
             }
 
-            if (mat.HasTextureHeight)
+            string? dispFile = mat.HasTextureDisplacement ? mat.TextureDisplacement.FilePath
+                             : mat.HasTextureHeight ? mat.TextureHeight.FilePath
+                             : null;
+            if (dispFile != null)
             {
-                string texPath = Path.Combine(dir, mat.TextureHeight.FilePath);
+                string texPath = Path.Combine(dir, dispFile);
                 material.DisplacementTexturePath = texPath;
                 LoadTexture(device, commandList, texPath, model, uploadBuffers);
             }
@@ -106,10 +119,6 @@ public static class ModelLoader
                 LoadTexture(device, commandList, texPath, model, uploadBuffers);
             }
 
-            // NEW: rough legacy-Phong -> PBR approximation. Shininess is on a
-            // [0..~1000] scale; map it to a [0..1] roughness range. Replace
-            // this with real glTF metallic/roughness textures if you import
-            // PBR-authored assets instead of Sponza's classic OBJ/MTL set.
             if (mat.HasShininess && mat.Shininess > 0f)
             {
                 float shininess01 = Math.Clamp(mat.Shininess / 512f, 0f, 1f);
@@ -121,6 +130,9 @@ public static class ModelLoader
 
         foreach (var mesh in scene.Meshes)
         {
+            if (skipGlass && model.Materials[mesh.MaterialIndex].IsGlass)
+                continue;
+
             var vertices = new ModelVertex[mesh.VertexCount];
             for (int i = 0; i < mesh.VertexCount; i++)
             {
@@ -129,7 +141,7 @@ public static class ModelLoader
                     Position = new Vector3(
                         mesh.Vertices[i].X,
                         mesh.Vertices[i].Y,
-                        mesh.Vertices[i].Z),
+                        mesh.Vertices[i].Z) + offset,
                     Normal = mesh.HasNormals ? new Vector3(
                         mesh.Normals[i].X,
                         mesh.Normals[i].Y,

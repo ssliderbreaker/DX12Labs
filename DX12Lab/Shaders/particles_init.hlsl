@@ -24,7 +24,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (index >= gMaxParticles)
         return;
 
-    gParticles[index].Life = -1.0f; 
+    gParticles[index].Life = -1.0f;
     gParticles[index].Age = 0.0f;
 
     gDeadList.Append(index);
